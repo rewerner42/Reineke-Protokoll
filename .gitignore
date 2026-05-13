@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.vitest/
+
+# Caches
+.cache/
+.eslintcache
+.parcel-cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Electron-builder output
+packages/desktop/release/
+packages/desktop/dist-electron/
+
+# Expo
+.expo/
+.expo-shared/
+packages/mobile/ios/Pods/
+packages/mobile/ios/build/
+packages/mobile/android/build/
+packages/mobile/android/.gradle/
+packages/mobile/android/app/build/
+
+# Whisper-Modelle (lokal heruntergeladen)
+whisper-models/
+*.bin
+*.ggml
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# SQLite-Dateien (dev/test)
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-journal
+
+# OS-Audio-Dateien (dev)
+recordings/

@@ -1,0 +1,31 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderProtocolMarkdown > snapshot eines kompletten Protokolls bleibt stabil 1`] = `
+"# Protokoll: Strategie-Workshop
+
+**Datum:** Mittwoch, 13. Mai 2026 um 09:00 Uhr  
+**Dauer:** 1 h 30 min
+
+## Zusammenfassung
+
+Kurze Zusammenfassung.
+
+## Teilnehmer
+
+- Alice _(PM)_
+
+## To-Dos
+
+| Aufgabe | Verantwortlich | Deadline |
+|---------|----------------|----------|
+| Task | Alice | 2026-06-01 |
+
+## Entscheidungen
+
+- Entscheidung X
+
+## Diskussionspunkte
+
+- Punkt Y
+"
+`;

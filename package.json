@@ -1,0 +1,38 @@
+{
+  "name": "reineke-protokoll",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Meeting-Aufzeichnung mit Live-Transkription und KI-Protokoll",
+  "scripts": {
+    "build": "pnpm -r --workspace-concurrency=1 build",
+    "lint": "pnpm -r --workspace-concurrency=1 lint",
+    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yml}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,yml}\" --ignore-path .gitignore",
+    "dev:desktop": "pnpm --filter @reineke/desktop dev",
+    "dev:mobile": "pnpm --filter @reineke/mobile start"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.17.0",
+    "@types/node": "20.17.10",
+    "eslint": "9.17.0",
+    "globals": "15.14.0",
+    "prettier": "3.4.2",
+    "typescript": "5.7.2",
+    "typescript-eslint": "8.18.0"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "electron",
+      "keytar"
+    ]
+  }
+}

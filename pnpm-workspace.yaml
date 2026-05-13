@@ -1,0 +1,9 @@
+packages:
+  - "packages/shared"
+  - "packages/desktop"
+  # `packages/mobile` ist NICHT Teil des pnpm-Workspaces, da Expo + React Native
+  # eigene Bundler-Konventionen erwarten. Mobile-Setup: siehe docs/MOBILE_SETUP.md.
+
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
