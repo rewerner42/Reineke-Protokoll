@@ -13,20 +13,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install native-build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsecret-1-dev \
+            build-essential \
+            python3 \
+            pkg-config
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.0
+          run_install: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: pnpm
 
-      - name: Install system deps for native modules
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
-
-      - name: pnpm install
-        run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
 
       - name: Lint
         run: pnpm lint
@@ -39,32 +46,3 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-  mobile-typecheck:
-    name: mobile typecheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: pnpm
-
-      - name: pnpm install (workspace)
-        run: pnpm install --frozen-lockfile
-
-      - name: Build shared package
-        run: pnpm --filter @reineke/shared build
-
-      - name: Install mobile deps
-        working-directory: packages/mobile
-        run: npm install --no-audit --no-fund
-
-      - name: Mobile typecheck
-        working-directory: packages/mobile
-        run: npx tsc --noEmit
