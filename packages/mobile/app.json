@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Reineke-Protokoll",
+    "slug": "reineke-protokoll",
+    "version": "0.1.0",
+    "scheme": "reineke",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": ["expo-router", "expo-secure-store"],
+    "ios": {
+      "bundleIdentifier": "de.reineke.protokoll",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Reineke benötigt das Mikrofon, um Meetings aufzuzeichnen."
+      }
+    },
+    "android": {
+      "package": "de.reineke.protokoll",
+      "permissions": ["RECORD_AUDIO"]
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "@reineke/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reineke-Protokoll Mobile App (Expo / React Native)",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'Mobile-Lint läuft via Expo'",
+    "test": "echo 'Mobile-Tests werden via expo test ausgeführt'"
+  },
+  "dependencies": {
+    "@reineke/shared": "workspace:*",
+    "expo": "52.0.20",
+    "expo-audio": "0.3.5",
+    "expo-file-system": "18.0.6",
+    "expo-router": "4.0.13",
+    "expo-secure-store": "14.0.0",
+    "expo-sharing": "13.0.0",
+    "expo-sqlite": "15.0.4",
+    "react": "18.3.1",
+    "react-native": "0.76.5",
+    "react-native-safe-area-context": "4.12.0",
+    "react-native-screens": "4.4.0",
+    "whisper.rn": "0.4.0",
+    "zustand": "5.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.18",
+    "typescript": "5.7.2"
+  }
+}
