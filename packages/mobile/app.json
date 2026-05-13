@@ -7,16 +7,21 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "plugins": ["expo-router", "expo-secure-store"],
+    "plugins": ["expo-router", "expo-secure-store", "expo-audio"],
     "ios": {
       "bundleIdentifier": "de.reineke.protokoll",
+      "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Reineke benötigt das Mikrofon, um Meetings aufzuzeichnen."
+        "NSMicrophoneUsageDescription": "Reineke benötigt Zugriff auf das Mikrofon, um Meetings aufzuzeichnen und lokal zu transkribieren.",
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
       "package": "de.reineke.protokoll",
-      "permissions": ["RECORD_AUDIO"]
+      "permissions": ["RECORD_AUDIO", "INTERNET", "FOREGROUND_SERVICE"]
+    },
+    "experiments": {
+      "tsconfigPaths": true
     }
   }
 }

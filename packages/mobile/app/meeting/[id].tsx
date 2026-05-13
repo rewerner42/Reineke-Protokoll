@@ -12,7 +12,7 @@ import {
 } from '@reineke/shared';
 import { getAppContext } from '../../src/services/AppContext';
 import { SecureStoreService } from '../../src/services/SecureStoreService';
-import { DEFAULT_SETTINGS } from '@reineke/shared';
+import { SettingsStore } from '../../src/services/SettingsStore';
 
 export default function MeetingDetailScreen(): JSX.Element {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -34,7 +34,7 @@ export default function MeetingDetailScreen(): JSX.Element {
     if (!meeting) return;
     setBusy(true);
     try {
-      const settings = DEFAULT_SETTINGS;
+      const settings = await SettingsStore.get();
       const apiKey = await SecureStoreService.getApiKey(settings.llmProvider);
       if (!apiKey) {
         Alert.alert('API-Key fehlt', 'Bitte einen API-Key in den Einstellungen hinterlegen.');
