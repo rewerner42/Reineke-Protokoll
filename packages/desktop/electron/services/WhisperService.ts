@@ -40,12 +40,12 @@ export interface WhisperServiceOptions {
   language?: 'de' | 'en';
 }
 
-const MODEL_NAME: Record<WhisperModelSize, string> = {
+const MODEL_NAME = {
   tiny: 'tiny',
   base: 'base',
   small: 'small',
   medium: 'medium',
-};
+} as const satisfies Record<WhisperModelSize, string>;
 
 interface MeetingState {
   meetingId: string;
