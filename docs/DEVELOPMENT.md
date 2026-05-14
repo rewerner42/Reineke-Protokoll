@@ -55,6 +55,50 @@ automatisch ausgeführt).
 
 ## Releasing
 
-- Versionierung über `package.json` in den jeweiligen Paketen
-- Desktop-Distribution via `electron-builder` (Phase 7)
-- Mobile-Distribution über EAS Build (Phase 7)
+### Desktop (Mac / Windows / Linux)
+
+Distribution via `electron-builder`. Konfiguration liegt im `build`-Block in
+[`packages/desktop/package.json`](../packages/desktop/package.json).
+
+```bash
+# auf Mac (Apple Silicon + Intel als universal-style DMG)
+pnpm --filter @reineke/desktop dist:mac
+
+# auf Windows (NSIS-Installer)
+pnpm --filter @reineke/desktop dist:win
+
+# alle drei (geht nur auf dem jeweiligen Host)
+pnpm --filter @reineke/desktop dist
+```
+
+Output landet in `packages/desktop/release/<version>/`.
+
+**Voraussetzungen pro Plattform:**
+
+- **macOS**: Xcode Command Line Tools, `cmake` (`brew install cmake`).
+  Für signierte und notarisierte Builds: Apple-Developer-Account, Cert im
+  Keychain, `CSC_LINK`/`CSC_KEY_PASSWORD` Env-Variablen für electron-builder.
+  Unsignierte Builds laufen lokal, lassen sich aber von anderen Macs nur via
+  Rechtsklick → Öffnen starten.
+- **Windows**: Visual Studio Build Tools (für native Module),
+  Python 3, `cmake` im PATH. Code-Signing optional via `CSC_LINK` (PFX).
+
+**whisper.cpp wird beim ersten Start kompiliert.** Der Endbenutzer braucht
+deshalb `cmake` auf seinem System. Wer das vermeiden will, kann
+whisper.cpp + ein Modell vorab bauen und über `extraResources` mit-bundeln
+(noch nicht eingerichtet).
+
+### Mobile (iOS / Android) — TODO
+
+Aktuell ist nur das Expo-Skeleton vorhanden
+([`docs/MOBILE_SETUP.md`](MOBILE_SETUP.md)). Für ein produktionsreifes
+Release fehlt:
+
+- `expo prebuild` + native `whisper.rn` Integration
+- App-Icons, Splash-Screens
+- iOS: Bundle-ID, Provisioning-Profile, App-Store-Connect-Setup
+- Android: Keystore, Play-Console-Setup
+- Builds + Upload über EAS (`eas build --profile production`,
+  `eas submit`)
+
+Das ist eine eigene Iteration und nicht Teil dieses Releases.

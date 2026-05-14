@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
+import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -11,6 +12,7 @@ import {
   renderProtocolMarkdown,
   listOllamaModels,
 } from '@reineke/shared';
+import type { LLMProviderName } from '@reineke/shared';
 import { BetterSqliteAdapter } from './services/BetterSqliteAdapter.js';
 import { SettingsService } from './services/SettingsService.js';
 import { WhisperService } from './services/WhisperService.js';
@@ -20,6 +22,19 @@ import { promises as fs } from 'node:fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'reineke-audio',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+    },
+  },
+]);
 
 interface AppContext {
   db: BetterSqliteAdapter;
@@ -167,31 +182,38 @@ function registerIpc(context: AppContext): void {
   );
 
   // Protocol
-  handle('protocol:generate', async (meetingId) => {
+  handle('protocol:generate', async (meetingId, override) => {
     const id = meetingId as string;
     const settings = await context.settings.get();
+    const ov = (override ?? {}) as {
+      provider?: LLMProviderName;
+      model?: string;
+      ollamaBaseUrl?: string;
+    };
+    const providerName: LLMProviderName = ov.provider ?? settings.llmProvider;
+
     let apiKey = '';
-    if (settings.llmProvider !== 'ollama') {
-      const key = await context.settings.getApiKey(settings.llmProvider);
+    if (providerName !== 'ollama') {
+      const key = await context.settings.getApiKey(providerName);
       if (!key) {
         throw new Error(
-          `Kein API-Key für ${settings.llmProvider} hinterlegt — bitte in den Einstellungen ergänzen.`,
+          `Kein API-Key für ${providerName} hinterlegt — bitte in den Einstellungen ergänzen.`,
         );
       }
       apiKey = key;
     }
-    const model =
-      settings.llmProvider === 'claude'
+    const defaultModel =
+      providerName === 'claude'
         ? settings.claudeModel
-        : settings.llmProvider === 'openai'
+        : providerName === 'openai'
           ? settings.openaiModel
           : settings.ollamaModel;
-    const provider = createLLMProvider({
-      name: settings.llmProvider,
-      apiKey,
-      model,
-      baseUrl: settings.llmProvider === 'ollama' ? settings.ollamaBaseUrl : undefined,
-    });
+    const model = ov.model && ov.model.length > 0 ? ov.model : defaultModel;
+    const baseUrl =
+      providerName === 'ollama'
+        ? ov.ollamaBaseUrl ?? settings.ollamaBaseUrl
+        : undefined;
+    const provider = createLLMProvider({ name: providerName, apiKey, model, baseUrl });
     const generator = new ProtocolGenerator({
       meetings: context.meetings,
       transcripts: context.transcripts,
@@ -419,6 +441,27 @@ function formatTsForMd(ms: number): string {
   return `\`[${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}]\``;
 }
 
+function registerAudioProtocol(context: AppContext): void {
+  const recordingsDir = path.join(context.userDataDir, 'recordings');
+  protocol.handle('reineke-audio', async (request) => {
+    const url = new URL(request.url);
+    const fileName = path.basename(url.pathname);
+    if (!/^[A-Za-z0-9_-]+\.wav$/.test(fileName)) {
+      return new Response('forbidden', { status: 403 });
+    }
+    const filePath = path.join(recordingsDir, fileName);
+    if (!filePath.startsWith(recordingsDir)) {
+      return new Response('forbidden', { status: 403 });
+    }
+    try {
+      await fs.access(filePath);
+    } catch {
+      return new Response('not found', { status: 404 });
+    }
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+}
+
 function findProtocolById(
   context: AppContext,
   protocolId: string,
@@ -432,6 +475,7 @@ function findProtocolById(
 
 app.whenReady().then(async () => {
   ctx = await setupContext();
+  registerAudioProtocol(ctx);
   registerIpc(ctx);
   await createMainWindow(ctx);
 

@@ -76,6 +76,18 @@ export function MeetingDetailPage(): JSX.Element {
 
       {error && <p className="text-red-600 text-sm mt-3">Fehler: {error}</p>}
 
+      {meeting.audioPath && (
+        <div className="mt-6 bg-white border border-slate-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-2">Aufnahme</h3>
+          <audio
+            controls
+            preload="metadata"
+            src={`reineke-audio://meeting/${meeting.id}.wav`}
+            className="w-full"
+          />
+        </div>
+      )}
+
       <div className="flex items-center justify-between mt-8 mb-3">
         <h3 className="text-lg font-semibold text-slate-900">
           Transkript – <span className="text-slate-700 font-normal">{meeting.title}</span>

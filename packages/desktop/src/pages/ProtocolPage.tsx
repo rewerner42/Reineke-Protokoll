@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { Protocol } from '@reineke/shared';
+import type { AppSettings, LLMProviderName, Protocol } from '@reineke/shared';
+import { LLM_MODELS } from '@reineke/shared';
 import { api } from '../lib/ipc.js';
 
 export function ProtocolPage(): JSX.Element {
@@ -9,6 +10,12 @@ export function ProtocolPage(): JSX.Element {
   const [view, setView] = useState<'rendered' | 'source'>('rendered');
   const [editedMarkdown, setEditedMarkdown] = useState('');
   const [saving, setSaving] = useState(false);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [regenProvider, setRegenProvider] = useState<LLMProviderName | null>(null);
+  const [regenModel, setRegenModel] = useState('');
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -16,7 +23,40 @@ export function ProtocolPage(): JSX.Element {
       setProtocol(p);
       if (p) setEditedMarkdown(p.markdown);
     });
+    void api.settings.get().then(setSettings);
   }, [id]);
+
+  useEffect(() => {
+    if (regenProvider === 'ollama' && settings) {
+      void api.ollama.listModels(settings.ollamaBaseUrl).then(setOllamaModels).catch(() => setOllamaModels([]));
+    }
+  }, [regenProvider, settings]);
+
+  useEffect(() => {
+    if (!regenProvider || !settings) return;
+    if (regenProvider === 'claude') setRegenModel(settings.claudeModel);
+    else if (regenProvider === 'openai') setRegenModel(settings.openaiModel);
+    else setRegenModel(settings.ollamaModel);
+  }, [regenProvider, settings]);
+
+  const handleRegenerate = async (): Promise<void> => {
+    if (!id || !regenProvider) return;
+    setRegenError(null);
+    setRegenerating(true);
+    try {
+      const p = await api.protocol.generate(id, {
+        provider: regenProvider,
+        model: regenModel,
+      });
+      setProtocol(p);
+      setEditedMarkdown(p.markdown);
+      setRegenProvider(null);
+    } catch (err) {
+      setRegenError((err as Error).message);
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   const handleSave = async (): Promise<void> => {
     if (!protocol) return;
@@ -114,32 +154,123 @@ export function ProtocolPage(): JSX.Element {
         </div>
       </div>
 
-      <p className="text-xs text-slate-500 mb-4">
-        Erstellt mit {protocol.llmProvider} ({protocol.llmModel})
-        {protocol.editedAt ? ' · zuletzt bearbeitet' : ''}
-      </p>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-slate-500">
+          Erstellt mit {protocol.llmProvider} ({protocol.llmModel})
+          {protocol.editedAt ? ' · zuletzt bearbeitet' : ''}
+        </p>
+        <button
+          type="button"
+          onClick={() => setRegenProvider((p) => (p ? null : protocol.llmProvider))}
+          className="text-xs text-slate-600 hover:text-slate-900 underline"
+        >
+          {regenProvider ? 'Abbrechen' : '↻ Neu erzeugen …'}
+        </button>
+      </div>
+
+      {regenProvider && settings && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+          <h4 className="text-sm font-semibold text-amber-900 mb-2">Protokoll neu erzeugen</h4>
+          <p className="text-xs text-amber-800 mb-3">
+            Ersetzt das aktuelle Protokoll. Lokale Änderungen am Markdown gehen verloren.
+          </p>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {(['claude', 'openai', 'ollama'] as LLMProviderName[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setRegenProvider(p)}
+                className={`px-2 py-1.5 text-sm rounded border ${
+                  regenProvider === p
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {p === 'claude' ? 'Claude' : p === 'openai' ? 'OpenAI' : 'Ollama'}
+              </button>
+            ))}
+          </div>
+          <label className="block text-xs text-amber-900 mb-1">Modell</label>
+          {regenProvider === 'ollama' ? (
+            ollamaModels.length > 0 ? (
+              <select
+                value={regenModel}
+                onChange={(e) => setRegenModel(e.target.value)}
+                className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm mb-3"
+              >
+                {ollamaModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+                {!ollamaModels.includes(regenModel) && (
+                  <option value={regenModel}>{regenModel} (manuell)</option>
+                )}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={regenModel}
+                onChange={(e) => setRegenModel(e.target.value)}
+                placeholder="z.B. llama3.1"
+                className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm mb-3 font-mono"
+              />
+            )
+          ) : (
+            <select
+              value={regenModel}
+              onChange={(e) => setRegenModel(e.target.value)}
+              className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm mb-3"
+            >
+              {LLM_MODELS[regenProvider].map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {regenError && (
+            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 mb-2">
+              {regenError}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            disabled={regenerating || !regenModel}
+            className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50 text-sm font-medium"
+          >
+            {regenerating ? 'Erzeuge …' : '✨ Neu erzeugen'}
+          </button>
+        </div>
+      )}
 
       {view === 'rendered' ? (
         <>
-          <section className="bg-white border border-slate-200 rounded-lg p-6 mb-4">
-            <h3 className="text-lg font-semibold mb-3">Zusammenfassung</h3>
-            <p className="whitespace-pre-wrap text-slate-800">{protocol.summary}</p>
+          <section className="bg-white border border-slate-200 rounded-lg px-6 py-4 mb-4">
+            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">
+              Teilnehmer
+            </h3>
+            {protocol.participants.length === 0 ? (
+              <p className="text-slate-500 italic text-sm">Keine Teilnehmer erkannt.</p>
+            ) : (
+              <p className="text-slate-800 leading-relaxed">
+                {protocol.participants.map((p, i) => (
+                  <span key={p.id}>
+                    <span className="font-medium">{p.name}</span>
+                    {p.role && <span className="text-slate-500"> ({p.role})</span>}
+                    {i < protocol.participants.length - 1 && (
+                      <span className="text-slate-400 mx-1">·</span>
+                    )}
+                  </span>
+                ))}
+              </p>
+            )}
           </section>
 
           <section className="bg-white border border-slate-200 rounded-lg p-6 mb-4">
-            <h3 className="text-lg font-semibold mb-3">Teilnehmer</h3>
-            {protocol.participants.length === 0 ? (
-              <p className="text-slate-500 italic">Keine Teilnehmer erkannt.</p>
-            ) : (
-              <ul className="list-disc list-inside text-slate-800">
-                {protocol.participants.map((p) => (
-                  <li key={p.id}>
-                    {p.name}
-                    {p.role ? ` (${p.role})` : ''}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <h3 className="text-lg font-semibold mb-3">Zusammenfassung</h3>
+            <p className="whitespace-pre-wrap text-slate-800">{protocol.summary}</p>
           </section>
 
           <section className="bg-white border border-slate-200 rounded-lg p-6 mb-4">
