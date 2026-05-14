@@ -9,10 +9,12 @@ import {
   ProtocolGenerator,
   createLLMProvider,
   renderProtocolMarkdown,
+  listOllamaModels,
 } from '@reineke/shared';
 import { BetterSqliteAdapter } from './services/BetterSqliteAdapter.js';
 import { SettingsService } from './services/SettingsService.js';
 import { WhisperService } from './services/WhisperService.js';
+import { PdfExportService } from './services/PdfExportService.js';
 import type { IpcContract, WhisperModelInfo } from './types/ipc-contract.js';
 import { promises as fs } from 'node:fs';
 
@@ -26,13 +28,15 @@ interface AppContext {
   protocols: ProtocolRepository;
   settings: SettingsService;
   whisper: WhisperService;
+  pdf: PdfExportService;
+  userDataDir: string;
   mainWindow: BrowserWindow | null;
 }
 
 let ctx: AppContext | null = null;
 
 async function createMainWindow(context: AppContext): Promise<BrowserWindow> {
-  const preloadPath = path.join(__dirname, '..', 'preload', 'preload.js');
+  const preloadPath = path.join(__dirname, '..', 'preload', 'preload.mjs');
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -83,6 +87,8 @@ async function setupContext(): Promise<AppContext> {
     protocols: new ProtocolRepository(db),
     settings: settingsService,
     whisper,
+    pdf: new PdfExportService(),
+    userDataDir,
     mainWindow: null,
   };
 }
@@ -118,12 +124,28 @@ function registerIpc(context: AppContext): void {
   handle('recording:stop', async (meetingId) => {
     const id = meetingId as string;
     const result = await context.whisper.stopMeeting(id);
+
+    if (result.finalSegments.length > 0) {
+      context.transcripts.deleteProvisional(id);
+      for (const raw of result.finalSegments) {
+        const segment = context.transcripts.insert({
+          meetingId: id,
+          startMs: raw.startMs,
+          endMs: raw.endMs,
+          text: raw.text,
+          speakerLabel: null,
+          isFinal: true,
+        });
+        context.mainWindow?.webContents.send('transcription:segment', segment);
+      }
+    }
+
     context.meetings.update(id, {
       status: 'completed',
       endedAt: new Date().toISOString(),
       audioPath: result.audioPath,
     });
-    return result;
+    return { audioPath: result.audioPath };
   });
 
   // Whisper -> Renderer events + Persistierung
@@ -148,16 +170,27 @@ function registerIpc(context: AppContext): void {
   handle('protocol:generate', async (meetingId) => {
     const id = meetingId as string;
     const settings = await context.settings.get();
-    const apiKey = await context.settings.getApiKey(settings.llmProvider);
-    if (!apiKey) {
-      throw new Error(
-        `Kein API-Key für ${settings.llmProvider} hinterlegt — bitte in den Einstellungen ergänzen.`,
-      );
+    let apiKey = '';
+    if (settings.llmProvider !== 'ollama') {
+      const key = await context.settings.getApiKey(settings.llmProvider);
+      if (!key) {
+        throw new Error(
+          `Kein API-Key für ${settings.llmProvider} hinterlegt — bitte in den Einstellungen ergänzen.`,
+        );
+      }
+      apiKey = key;
     }
+    const model =
+      settings.llmProvider === 'claude'
+        ? settings.claudeModel
+        : settings.llmProvider === 'openai'
+          ? settings.openaiModel
+          : settings.ollamaModel;
     const provider = createLLMProvider({
       name: settings.llmProvider,
       apiKey,
-      model: settings.llmProvider === 'claude' ? settings.claudeModel : settings.openaiModel,
+      model,
+      baseUrl: settings.llmProvider === 'ollama' ? settings.ollamaBaseUrl : undefined,
     });
     const generator = new ProtocolGenerator({
       meetings: context.meetings,
@@ -183,14 +216,15 @@ function registerIpc(context: AppContext): void {
     const meeting = context.meetings.get(protocol.meetingId);
     if (!meeting) return null;
     const markdown = renderProtocolMarkdown(protocol, meeting);
-    const result = await dialog.showSaveDialog(context.mainWindow ?? undefined as never, {
-      title: 'Protokoll exportieren',
-      defaultPath: `${meeting.title.replace(/\s+/g, '-')}.md`,
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-    });
-    if (result.canceled || !result.filePath) return null;
-    await fs.writeFile(result.filePath, markdown, 'utf8');
-    return { path: result.filePath };
+    const filePath = await pickSavePath(
+      context,
+      `${sanitizeName(meeting.title)}-protokoll.md`,
+      'Protokoll exportieren',
+      [{ name: 'Markdown', extensions: ['md'] }],
+    );
+    if (!filePath) return null;
+    await fs.writeFile(filePath, markdown, 'utf8');
+    return { path: filePath };
   });
 
   // Settings
@@ -223,6 +257,166 @@ function registerIpc(context: AppContext): void {
     // nodejs-whisper lädt Modelle automatisch beim ersten Aufruf; expliziter
     // Download bleibt als Hook für künftige Erweiterungen.
   });
+
+  // Ollama
+  handle('ollama:listModels', async (baseUrl) => {
+    return listOllamaModels(baseUrl as string);
+  });
+
+  // PDF + Transcript Export
+  handle('pdf:exportProtocol', async (meetingId) => {
+    const id = meetingId as string;
+    const meeting = context.meetings.get(id);
+    const protocol = context.protocols.getByMeetingId(id);
+    if (!meeting || !protocol) return null;
+    const settings = await context.settings.get();
+    const filePath = await pickSavePath(
+      context,
+      `${sanitizeName(meeting.title)}-protokoll.pdf`,
+      'Protokoll als PDF exportieren',
+      [{ name: 'PDF', extensions: ['pdf'] }],
+    );
+    if (!filePath) return null;
+    return context.pdf.exportProtocolToPath(meeting, protocol, settings, filePath);
+  });
+
+  handle('pdf:exportTranscript', async (meetingId) => {
+    const id = meetingId as string;
+    const meeting = context.meetings.get(id);
+    if (!meeting) return null;
+    const segments = context.transcripts.listForMeeting(id);
+    const settings = await context.settings.get();
+    const filePath = await pickSavePath(
+      context,
+      `${sanitizeName(meeting.title)}-transkript.pdf`,
+      'Transkript als PDF exportieren',
+      [{ name: 'PDF', extensions: ['pdf'] }],
+    );
+    if (!filePath) return null;
+    return context.pdf.exportTranscriptToPath(meeting, segments, settings, filePath);
+  });
+
+  handle('transcript:exportMarkdown', async (meetingId) => {
+    const id = meetingId as string;
+    const meeting = context.meetings.get(id);
+    if (!meeting) return null;
+    const segments = context.transcripts.listForMeeting(id);
+    const finals = segments.filter((s) => s.isFinal);
+    const lines = [
+      `# Transkript: ${meeting.title}`,
+      '',
+      `**Datum:** ${new Date(meeting.startedAt).toLocaleString('de-DE')}`,
+      '',
+      ...finals.map((s) => `${formatTsForMd(s.startMs)} ${s.text.trim()}`),
+    ];
+    const md = lines.join('\n');
+    const filePath = await pickSavePath(
+      context,
+      `${sanitizeName(meeting.title)}-transkript.md`,
+      'Transkript exportieren',
+      [{ name: 'Markdown', extensions: ['md'] }],
+    );
+    if (!filePath) return null;
+    await fs.writeFile(filePath, md, 'utf8');
+    return { path: filePath };
+  });
+
+  handle('settings:uploadLogo', async () => {
+    const result = await showOpenDialog(context, {
+      title: 'Firmenlogo wählen',
+      filters: [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const srcPath = result.filePaths[0]!;
+    const ext = path.extname(srcPath).toLowerCase();
+    const destDir = path.join(context.userDataDir, 'branding');
+    await fs.mkdir(destDir, { recursive: true });
+    const destPath = path.join(destDir, `logo${ext}`);
+    await fs.copyFile(srcPath, destPath);
+    await context.settings.set({ pdfLogoPath: destPath });
+    return { path: destPath };
+  });
+
+  handle('settings:removeLogo', async () => {
+    const settings = await context.settings.get();
+    if (settings.pdfLogoPath) {
+      await fs.unlink(settings.pdfLogoPath).catch(() => undefined);
+    }
+    await context.settings.set({ pdfLogoPath: null });
+  });
+
+  handle('settings:getLogoDataUrl', async () => {
+    const settings = await context.settings.get();
+    if (!settings.pdfLogoPath) return null;
+    try {
+      const buf = await fs.readFile(settings.pdfLogoPath);
+      const ext = path.extname(settings.pdfLogoPath).slice(1).toLowerCase();
+      const mime =
+        ext === 'png'
+          ? 'image/png'
+          : ext === 'svg'
+            ? 'image/svg+xml'
+            : 'image/jpeg';
+      return `data:${mime};base64,${buf.toString('base64')}`;
+    } catch {
+      return null;
+    }
+  });
+
+  handle('settings:pickExportDir', async () => {
+    const result = await showOpenDialog(context, {
+      title: 'Standard-Speicherordner für Exporte wählen',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const dir = result.filePaths[0]!;
+    await context.settings.set({ exportDir: dir });
+    return { path: dir };
+  });
+}
+
+async function pickSavePath(
+  context: AppContext,
+  defaultFileName: string,
+  title: string,
+  filters: { name: string; extensions: string[] }[],
+): Promise<string | null> {
+  const settings = await context.settings.get();
+  const baseDir =
+    settings.exportDir ?? settings.lastExportDir ?? app.getPath('documents');
+  const defaultPath = path.join(baseDir, defaultFileName);
+  const opts: Electron.SaveDialogOptions = { title, defaultPath, filters };
+  const result = context.mainWindow
+    ? await dialog.showSaveDialog(context.mainWindow, opts)
+    : await dialog.showSaveDialog(opts);
+  if (result.canceled || !result.filePath) return null;
+  if (!settings.exportDir) {
+    await context.settings.set({ lastExportDir: path.dirname(result.filePath) });
+  }
+  return result.filePath;
+}
+
+async function showOpenDialog(
+  context: AppContext,
+  opts: Electron.OpenDialogOptions,
+): Promise<Electron.OpenDialogReturnValue> {
+  return context.mainWindow
+    ? dialog.showOpenDialog(context.mainWindow, opts)
+    : dialog.showOpenDialog(opts);
+}
+
+function sanitizeName(s: string): string {
+  return s.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
+}
+
+function formatTsForMd(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `\`[${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}]\``;
+  return `\`[${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}]\``;
 }
 
 function findProtocolById(

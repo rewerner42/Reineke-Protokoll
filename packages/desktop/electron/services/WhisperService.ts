@@ -53,6 +53,7 @@ interface MeetingState {
   lastFinalUntilMs: number;
   emittedSegmentIds: Map<string, string>;
   audioPath: string;
+  inferenceInFlight: boolean;
 }
 
 /**
@@ -81,6 +82,7 @@ export class WhisperService extends EventEmitter {
       lastFinalUntilMs: 0,
       emittedSegmentIds: new Map(),
       audioPath: path.join(this.opts.audioDir, `${meetingId}.wav`),
+      inferenceInFlight: false,
     });
   }
 
@@ -91,7 +93,17 @@ export class WhisperService extends EventEmitter {
 
     const currentMs = pcmDurationMs(state.pcm);
     if (currentMs < 3000) return;
+    if (state.inferenceInFlight) return;
 
+    state.inferenceInFlight = true;
+    try {
+      await this.runInferenceForWindow(state, currentMs);
+    } finally {
+      state.inferenceInFlight = false;
+    }
+  }
+
+  private async runInferenceForWindow(state: MeetingState, currentMs: number): Promise<void> {
     const windowPcm = sliceTrailingWindow(state.pcm, DEFAULT_WINDOW.windowMs);
     const windowStartMs = currentMs - pcmDurationMs(windowPcm);
     const wavPath = await this.writeTempWav(state, windowPcm);
@@ -112,7 +124,7 @@ export class WhisperService extends EventEmitter {
       state.emittedSegmentIds.set(key, id);
       const segment: TranscriptSegment = {
         id,
-        meetingId,
+        meetingId: state.meetingId,
         startMs: seg.startMs,
         endMs: seg.endMs,
         text: seg.text.trim(),
@@ -125,7 +137,7 @@ export class WhisperService extends EventEmitter {
     for (const seg of provisional) {
       const segment: TranscriptSegment = {
         id: newId(),
-        meetingId,
+        meetingId: state.meetingId,
         startMs: seg.startMs,
         endMs: seg.endMs,
         text: seg.text.trim(),
@@ -139,13 +151,32 @@ export class WhisperService extends EventEmitter {
     state.lastFinalUntilMs = finalUntilMs;
   }
 
-  async stopMeeting(meetingId: string): Promise<{ audioPath: string | null }> {
+  async stopMeeting(
+    meetingId: string,
+  ): Promise<{ audioPath: string | null; finalSegments: RawWhisperSegment[] }> {
+    const inflightState = this.meetings.get(meetingId);
+    if (inflightState?.inferenceInFlight) {
+      const start = Date.now();
+      while (inflightState.inferenceInFlight && Date.now() - start < 30_000) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+
     const state = this.meetings.get(meetingId);
-    if (!state) return { audioPath: null };
+    if (!state) return { audioPath: null, finalSegments: [] };
     const audioPath = state.audioPath;
     await this.writeFullWav(audioPath, state.pcm);
+
+    let finalSegments: RawWhisperSegment[] = [];
+    if (state.pcm.length > 0) {
+      try {
+        finalSegments = await this.runInference(audioPath);
+      } catch (err) {
+        console.error('[Whisper] Final transcription failed:', err);
+      }
+    }
     this.meetings.delete(meetingId);
-    return { audioPath };
+    return { audioPath, finalSegments };
   }
 
   private async writeTempWav(state: MeetingState, pcm: Buffer): Promise<string> {
@@ -207,7 +238,7 @@ async function runWithNodejsWhisper(
   opts: WhisperServiceOptions,
 ): Promise<RawWhisperSegment[]> {
   const mod = (await import('nodejs-whisper')) as unknown as { nodewhisper: WhisperFn };
-  const result = (await mod.nodewhisper(audioPath, {
+  await mod.nodewhisper(audioPath, {
     modelName: MODEL_NAME[opts.modelSize],
     autoDownloadModelName: MODEL_NAME[opts.modelSize],
     whisperOptions: {
@@ -218,13 +249,23 @@ async function runWithNodejsWhisper(
       language: opts.language ?? 'de',
       wordTimestamps: false,
     },
-  })) as unknown;
+  });
 
-  const segments = extractSegments(result);
-  return segments;
+  const jsonPath = `${audioPath}.json`;
+  const raw = await fs.readFile(jsonPath, 'utf8').catch(() => null);
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  return extractSegments(parsed);
 }
 
 interface JsonSegment {
+  timestamps?: { from?: string; to?: string };
+  offsets?: { from?: number; to?: number };
   from?: string;
   to?: string;
   start?: string | number;
@@ -238,11 +279,29 @@ function extractSegments(result: unknown): RawWhisperSegment[] {
   const segs: JsonSegment[] = Array.isArray(result)
     ? (result as JsonSegment[])
     : ((result as { transcription?: JsonSegment[] }).transcription ?? []);
-  return segs.map((s) => ({
-    startMs: parseTimestampMs(s.from ?? s.start ?? 0),
-    endMs: parseTimestampMs(s.to ?? s.end ?? 0),
-    text: (s.speech ?? s.text ?? '').toString(),
-  }));
+  return segs
+    .map((s) => ({
+      startMs:
+        s.offsets?.from ??
+        parseTimestampMs(s.timestamps?.from ?? s.from ?? s.start ?? 0),
+      endMs:
+        s.offsets?.to ??
+        parseTimestampMs(s.timestamps?.to ?? s.to ?? s.end ?? 0),
+      text: (s.text ?? s.speech ?? '').toString().trim(),
+    }))
+    .filter((s) => s.text.length > 0)
+    .filter((s) => !isHallucination(s.text));
+}
+
+const HALLUCINATION_PATTERN =
+  /^[\s\[\(\*]*(musik|music|motor|applaus|applause|geräusche?|noise|silence|stille|undeutlich|inaudible|piept?|hupe|laughter|lachen|♪|♫)[\s\[\]\(\)\*\.\,!?_-]*$/i;
+
+function isHallucination(text: string): boolean {
+  const cleaned = text.trim();
+  if (cleaned.length === 0) return true;
+  if (HALLUCINATION_PATTERN.test(cleaned)) return true;
+  if (/^[\[\(\*][^a-zA-Z0-9äöüÄÖÜß]{0,40}[\]\)\*]$/.test(cleaned)) return true;
+  return false;
 }
 
 function parseTimestampMs(value: string | number): number {

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Reineke-Protokoll Desktop-App (Electron)",
   "type": "module",
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/main/main.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
