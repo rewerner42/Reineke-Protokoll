@@ -294,13 +294,13 @@ function extractSegments(result: unknown): RawWhisperSegment[] {
 }
 
 const HALLUCINATION_PATTERN =
-  /^[\s\[\(\*]*(musik|music|motor|applaus|applause|geräusche?|noise|silence|stille|undeutlich|inaudible|piept?|hupe|laughter|lachen|♪|♫)[\s\[\]\(\)\*\.\,!?_-]*$/i;
+  /^[\s[(*]*(musik|music|motor|applaus|applause|geräusche?|noise|silence|stille|undeutlich|inaudible|piept?|hupe|laughter|lachen|♪|♫)[\s[\])(*.,!?_-]*$/i;
 
 function isHallucination(text: string): boolean {
   const cleaned = text.trim();
   if (cleaned.length === 0) return true;
   if (HALLUCINATION_PATTERN.test(cleaned)) return true;
-  if (/^[\[\(\*][^a-zA-Z0-9äöüÄÖÜß]{0,40}[\]\)\*]$/.test(cleaned)) return true;
+  if (/^[[(*][^a-zA-Z0-9äöüÄÖÜß]{0,40}[\])*]$/.test(cleaned)) return true;
   return false;
 }
 
