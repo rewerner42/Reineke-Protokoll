@@ -34,10 +34,30 @@ export function ProtocolPage(): JSX.Element {
     }
   };
 
-  const handleExport = async (): Promise<void> => {
+  const [exporting, setExporting] = useState<'md' | 'pdf' | null>(null);
+
+  const handleExportMd = async (): Promise<void> => {
     if (!protocol) return;
-    const result = await api.protocol.exportMarkdown(protocol.id);
-    if (result) alert(`Protokoll exportiert: ${result.path}`);
+    setExporting('md');
+    try {
+      const result = await api.protocol.exportMarkdown(protocol.id);
+      if (result) alert(`Protokoll exportiert: ${result.path}`);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleExportPdf = async (): Promise<void> => {
+    if (!id) return;
+    setExporting('pdf');
+    try {
+      const result = await api.pdf.exportProtocol(id);
+      if (result) alert(`Protokoll als PDF exportiert: ${result.path}`);
+    } catch (err) {
+      alert(`PDF-Export fehlgeschlagen: ${(err as Error).message}`);
+    } finally {
+      setExporting(null);
+    }
   };
 
   if (!protocol)
@@ -77,10 +97,19 @@ export function ProtocolPage(): JSX.Element {
           </div>
           <button
             type="button"
-            onClick={handleExport}
-            className="px-3 py-1.5 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800"
+            onClick={handleExportMd}
+            disabled={exporting !== null}
+            className="px-3 py-1.5 bg-white border border-slate-300 text-slate-900 text-sm rounded-md hover:bg-slate-50 disabled:opacity-50"
           >
-            Exportieren
+            {exporting === 'md' ? '…' : 'Markdown'}
+          </button>
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={exporting !== null}
+            className="px-3 py-1.5 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800 disabled:opacity-50"
+          >
+            {exporting === 'pdf' ? 'Erzeuge PDF …' : 'PDF'}
           </button>
         </div>
       </div>

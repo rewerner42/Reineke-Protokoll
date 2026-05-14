@@ -10,4 +10,5 @@ export const LLM_MODELS: Record<LLMProviderName, { value: string; label: string 
     { value: 'gpt-4o-2024-11-20', label: 'GPT-4o (empfohlen)' },
     { value: 'gpt-4o-mini', label: 'GPT-4o mini (günstig)' },
   ],
+  ollama: [],
 };
