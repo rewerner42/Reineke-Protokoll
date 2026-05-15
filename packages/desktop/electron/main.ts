@@ -6,14 +6,21 @@ import {
   MeetingRepository,
   TranscriptRepository,
   ProtocolRepository,
+  SpeakerRepository,
   ProtocolGenerator,
   createLLMProvider,
   renderProtocolMarkdown,
+  assignSpeakerLabels,
 } from '@reineke/shared';
 import { BetterSqliteAdapter } from './services/BetterSqliteAdapter.js';
 import { SettingsService } from './services/SettingsService.js';
 import { WhisperService } from './services/WhisperService.js';
-import type { IpcContract, WhisperModelInfo } from './types/ipc-contract.js';
+import { DiarizationService } from './services/DiarizationService.js';
+import type {
+  DiarizationStatus,
+  IpcContract,
+  WhisperModelInfo,
+} from './types/ipc-contract.js';
 import { promises as fs } from 'node:fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,8 +31,10 @@ interface AppContext {
   meetings: MeetingRepository;
   transcripts: TranscriptRepository;
   protocols: ProtocolRepository;
+  speakers: SpeakerRepository;
   settings: SettingsService;
   whisper: WhisperService;
+  diarization: DiarizationService;
   mainWindow: BrowserWindow | null;
 }
 
@@ -62,9 +71,13 @@ async function setupContext(): Promise<AppContext> {
   const settingsPath = path.join(userDataDir, 'settings.json');
   const audioDir = path.join(userDataDir, 'recordings');
   const modelsDir = path.join(userDataDir, 'whisper-models');
+  const diarizationModelsDir = path.join(userDataDir, 'diarization-models');
 
   const db = new BetterSqliteAdapter(dbPath);
   runMigrations(db);
+
+  const meetingsRepo = new MeetingRepository(db);
+  recoverOrphanedRecordings(meetingsRepo);
 
   const settingsService = new SettingsService(settingsPath);
   const settings = await settingsService.get();
@@ -76,15 +89,34 @@ async function setupContext(): Promise<AppContext> {
     language: settings.language,
   });
 
+  const diarization = new DiarizationService({ modelsDir: diarizationModelsDir });
+
   return {
     db,
-    meetings: new MeetingRepository(db),
+    meetings: meetingsRepo,
     transcripts: new TranscriptRepository(db),
     protocols: new ProtocolRepository(db),
+    speakers: new SpeakerRepository(db),
     settings: settingsService,
     whisper,
+    diarization,
     mainWindow: null,
   };
+}
+
+function recoverOrphanedRecordings(meetings: MeetingRepository): void {
+  for (const m of meetings.list()) {
+    if (m.status === 'recording' || m.status === 'diarizing') {
+      try {
+        meetings.update(m.id, {
+          status: 'completed',
+          endedAt: m.endedAt ?? m.updatedAt,
+        });
+      } catch (err) {
+        console.error(`Konnte verwaiste Aufnahme ${m.id} nicht aufräumen:`, err);
+      }
+    }
+  }
 }
 
 function registerIpc(context: AppContext): void {
@@ -117,13 +149,32 @@ function registerIpc(context: AppContext): void {
   });
   handle('recording:stop', async (meetingId) => {
     const id = meetingId as string;
-    const result = await context.whisper.stopMeeting(id);
+    let result: Awaited<ReturnType<WhisperService['stopMeeting']>> | undefined;
+    let stopError: unknown;
+    try {
+      result = await context.whisper.stopMeeting(id);
+    } catch (err) {
+      stopError = err;
+      console.error(`recording:stop fehlgeschlagen für ${id}:`, err);
+    }
+
+    const audioPath = result?.audioPath ?? null;
+    const settings = await context.settings.get();
+    const willDiarize = audioPath !== null && settings.diarizationEnabled;
+
     context.meetings.update(id, {
-      status: 'completed',
+      status: willDiarize ? 'diarizing' : 'completed',
       endedAt: new Date().toISOString(),
-      audioPath: result.audioPath,
+      audioPath,
+      language: result?.detectedLanguage ?? null,
     });
-    return result;
+
+    if (willDiarize) {
+      void runDiarizationInBackground(context, id, audioPath as string);
+    }
+
+    if (stopError) throw stopError;
+    return { audioPath };
   });
 
   // Whisper -> Renderer events + Persistierung
@@ -138,11 +189,30 @@ function registerIpc(context: AppContext): void {
     });
     context.mainWindow?.webContents.send('transcription:segment', segment);
   });
+  context.whisper.on('language-detected', (info) => {
+    const meeting = context.meetings.get(info.meetingId);
+    if (meeting && meeting.language === null) {
+      context.meetings.update(info.meetingId, { language: info.language });
+    }
+  });
 
   // Transcription
   handle('transcription:listForMeeting', async (meetingId) =>
     context.transcripts.listForMeeting(meetingId as string),
   );
+
+  // Speakers
+  handle('speakers:listForMeeting', async (meetingId) =>
+    context.speakers.listForMeeting(meetingId as string),
+  );
+  handle('speakers:rename', async (meetingId, rawLabel, displayName) => {
+    const trimmed = (displayName as string).trim();
+    if (trimmed.length === 0) {
+      context.speakers.delete(meetingId as string, rawLabel as string);
+    } else {
+      context.speakers.upsert(meetingId as string, rawLabel as string, trimmed);
+    }
+  });
 
   // Protocol
   handle('protocol:generate', async (meetingId) => {
@@ -159,11 +229,14 @@ function registerIpc(context: AppContext): void {
       apiKey,
       model: settings.llmProvider === 'claude' ? settings.claudeModel : settings.openaiModel,
     });
+    const fallbackLanguage = settings.language === 'en' ? 'en' : 'de';
     const generator = new ProtocolGenerator({
       meetings: context.meetings,
       transcripts: context.transcripts,
       protocols: context.protocols,
+      speakers: context.speakers,
       provider,
+      fallbackLanguage,
     });
     return generator.generate(id);
   });
@@ -223,6 +296,52 @@ function registerIpc(context: AppContext): void {
     // nodejs-whisper lädt Modelle automatisch beim ersten Aufruf; expliziter
     // Download bleibt als Hook für künftige Erweiterungen.
   });
+}
+
+async function runDiarizationInBackground(
+  context: AppContext,
+  meetingId: string,
+  audioPath: string,
+): Promise<void> {
+  sendDiarizationStatus(context, { meetingId, state: 'started' });
+  try {
+    const available = await context.diarization.isAvailable();
+    if (!available) {
+      console.warn(
+        `Diarization für ${meetingId} übersprungen — sherpa-onnx-node oder Modelle fehlen.`,
+      );
+      context.meetings.update(meetingId, { status: 'completed' });
+      sendDiarizationStatus(context, { meetingId, state: 'skipped' });
+      return;
+    }
+
+    const spans = await context.diarization.diarize(audioPath);
+    const segments = context.transcripts.listForMeeting(meetingId).filter((s) => s.isFinal);
+    const updates = assignSpeakerLabels(
+      segments.map((s) => ({ id: s.id, startMs: s.startMs, endMs: s.endMs })),
+      spans,
+    );
+    context.transcripts.updateSpeakerLabels(updates);
+
+    context.meetings.update(meetingId, { status: 'completed' });
+    sendDiarizationStatus(context, { meetingId, state: 'completed' });
+  } catch (err) {
+    console.error(`Diarization fehlgeschlagen für ${meetingId}:`, err);
+    try {
+      context.meetings.update(meetingId, { status: 'completed' });
+    } catch (updateErr) {
+      console.error(`Konnte Status nach Diarization-Fehler nicht setzen:`, updateErr);
+    }
+    sendDiarizationStatus(context, {
+      meetingId,
+      state: 'failed',
+      error: (err as Error).message,
+    });
+  }
+}
+
+function sendDiarizationStatus(context: AppContext, status: DiarizationStatus): void {
+  context.mainWindow?.webContents.send('diarization:status', status);
 }
 
 function findProtocolById(

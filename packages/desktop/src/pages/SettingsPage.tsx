@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AppSettings, LLMProviderName, WhisperModelSize } from '@reineke/shared';
+import type { AppLanguage, AppSettings, LLMProviderName, WhisperModelSize } from '@reineke/shared';
 import { LLM_MODELS } from '@reineke/shared';
 import { api } from '../lib/ipc.js';
 
@@ -140,6 +140,41 @@ export function SettingsPage(): JSX.Element {
         <p className="text-xs text-slate-500 mt-1">
           Modelle werden beim ersten Aufnahmestart automatisch heruntergeladen.
         </p>
+
+        <Field label="Sprache der Aufnahme">
+          <select
+            value={settings.language}
+            onChange={(e) => update({ language: e.target.value as AppLanguage })}
+            className="w-full border border-slate-300 rounded-md px-3 py-2"
+          >
+            <option value="auto">Automatisch (Deutsch oder Englisch)</option>
+            <option value="de">Deutsch</option>
+            <option value="en">Englisch</option>
+          </select>
+        </Field>
+        <p className="text-xs text-slate-500 mt-1">
+          „Automatisch" erkennt die Sprache anhand der ersten Sekunden der Aufnahme. Funktioniert nur mit
+          multilingualen Whisper-Modellen (alle hier wählbaren Größen).
+        </p>
+      </Section>
+
+      <Section title="Sprecher-Erkennung">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.diarizationEnabled}
+            onChange={(e) => update({ diarizationEnabled: e.target.checked })}
+            className="mt-1"
+          />
+          <span className="text-sm">
+            <span className="font-medium">Sprecher nach der Aufnahme automatisch erkennen</span>
+            <span className="block text-xs text-slate-500 mt-1">
+              Nach dem Stoppen läuft eine lokale Diarization über die Audio-Datei und vergibt Labels
+              wie „Sprecher 1", „Sprecher 2". Du kannst sie anschließend mit echten Namen versehen.
+              Benötigt installierte sherpa-onnx-Modelle im Daten-Verzeichnis.
+            </span>
+          </span>
+        </label>
       </Section>
     </div>
   );

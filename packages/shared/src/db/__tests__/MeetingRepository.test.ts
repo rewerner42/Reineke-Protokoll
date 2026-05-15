@@ -23,9 +23,23 @@ describe('MeetingRepository', () => {
     expect(created.status).toBe('recording');
     expect(created.title).toBe('Test-Meeting');
     expect(created.endedAt).toBeNull();
+    expect(created.language).toBeNull();
 
     const fetched = repo.get(created.id);
     expect(fetched).toEqual(created);
+  });
+
+  it('speichert die erkannte Sprache', () => {
+    const m = repo.create({ title: 'Sprach-Test' });
+    const updated = repo.update(m.id, { language: 'en' });
+    expect(updated.language).toBe('en');
+    expect(repo.get(m.id)?.language).toBe('en');
+  });
+
+  it('erlaubt den neuen Status diarizing', () => {
+    const m = repo.create({ title: 'Diarize-Test' });
+    const updated = repo.update(m.id, { status: 'diarizing' });
+    expect(updated.status).toBe('diarizing');
   });
 
   it('listet Meetings absteigend nach Startzeit', async () => {

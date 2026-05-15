@@ -58,3 +58,39 @@ CREATE TABLE IF NOT EXISTS todos (
 
 CREATE INDEX IF NOT EXISTS idx_todos_protocol ON todos(protocol_id);
 `;
+
+export const migration002 = `
+ALTER TABLE meetings ADD COLUMN language TEXT;
+`;
+
+export const migration003 = `
+CREATE TABLE IF NOT EXISTS speakers (
+  meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  raw_label TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  PRIMARY KEY (meeting_id, raw_label)
+);
+`;
+
+// SQLite kann CHECK-Constraints nicht per ALTER ändern → Tabelle neu bauen.
+export const migration004 = `
+CREATE TABLE meetings_new (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  status TEXT NOT NULL CHECK (status IN ('recording','diarizing','completed','archived')),
+  audio_path TEXT,
+  language TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+INSERT INTO meetings_new (id, title, started_at, ended_at, status, audio_path, language, created_at, updated_at)
+SELECT id, title, started_at, ended_at, status, audio_path, language, created_at, updated_at FROM meetings;
+
+DROP TABLE meetings;
+ALTER TABLE meetings_new RENAME TO meetings;
+
+CREATE INDEX IF NOT EXISTS idx_meetings_started_at ON meetings(started_at DESC);
+`;

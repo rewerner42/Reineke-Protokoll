@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { LLMProvider } from './LLMProvider.js';
 import { LLMProviderError } from './LLMProvider.js';
-import { PROTOCOL_SYSTEM_PROMPT, buildProtocolUserPrompt } from './prompts.js';
+import { systemPromptFor, buildProtocolUserPrompt } from './prompts.js';
 import type { ProtocolInput, ProtocolOutput } from '../models/schemas.js';
 import { PROTOCOL_JSON_SCHEMA, ProtocolOutputSchema } from '../models/schemas.js';
 
@@ -32,7 +32,7 @@ export class ClaudeProvider implements LLMProvider {
       response = await this.client.messages.create({
         model: this.model,
         max_tokens: this.maxTokens,
-        system: PROTOCOL_SYSTEM_PROMPT,
+        system: systemPromptFor(input.language),
         tools: [
           {
             name: TOOL_NAME,

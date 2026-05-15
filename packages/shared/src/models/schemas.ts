@@ -26,6 +26,7 @@ export const ProtocolInputSchema = z.object({
   language: z.enum(['de', 'en']),
   meetingTitle: z.string().optional(),
   knownParticipants: z.array(z.string()).optional(),
+  speakerAnnotated: z.boolean().optional(),
 });
 
 export type ProtocolInput = z.infer<typeof ProtocolInputSchema>;

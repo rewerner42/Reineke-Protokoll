@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { WhisperService } from '../WhisperService.js';
-import type { RawWhisperSegment } from '../WhisperService.js';
+import type { WhisperRunResult } from '../WhisperService.js';
 import type { TranscriptSegment } from '@reineke/shared';
 
 const SAMPLE_RATE = 16_000;
@@ -29,7 +29,9 @@ describe('WhisperService', () => {
   });
 
   it('startMeeting initialisiert State und stopMeeting bereinigt', async () => {
-    const runner = vi.fn().mockResolvedValue([]);
+    const runner = vi
+      .fn()
+      .mockResolvedValue({ segments: [], detectedLanguage: null } satisfies WhisperRunResult);
     const svc = new WhisperService(
       { modelSize: 'base', modelsDir: tmpDir, audioDir: tmpDir },
       runner,
@@ -41,9 +43,10 @@ describe('WhisperService', () => {
 
   it('emittiert ein finales Segment, wenn der Cutoff überschritten wird', async () => {
     const segments: TranscriptSegment[] = [];
-    const runner = vi.fn(async (): Promise<RawWhisperSegment[]> => [
-      { startMs: 0, endMs: 3000, text: 'Hallo' },
-    ]);
+    const runner = vi.fn(async (): Promise<WhisperRunResult> => ({
+      segments: [{ startMs: 0, endMs: 3000, text: 'Hallo' }],
+      detectedLanguage: 'de',
+    }));
     const svc = new WhisperService(
       { modelSize: 'base', modelsDir: tmpDir, audioDir: tmpDir },
       runner,
@@ -62,9 +65,10 @@ describe('WhisperService', () => {
 
   it('emittiert vorläufiges Segment wenn Cutoff noch nicht überschritten', async () => {
     const segments: TranscriptSegment[] = [];
-    const runner = vi.fn(async (): Promise<RawWhisperSegment[]> => [
-      { startMs: 0, endMs: 3000, text: 'Test' },
-    ]);
+    const runner = vi.fn(async (): Promise<WhisperRunResult> => ({
+      segments: [{ startMs: 0, endMs: 3000, text: 'Test' }],
+      detectedLanguage: null,
+    }));
     const svc = new WhisperService(
       { modelSize: 'base', modelsDir: tmpDir, audioDir: tmpDir },
       runner,
@@ -79,10 +83,31 @@ describe('WhisperService', () => {
     expect(segments.some((s) => !s.isFinal)).toBe(true);
   });
 
+  it('emittiert language-detected beim ersten erfolgreichen Run', async () => {
+    const events: { meetingId: string; language: string }[] = [];
+    const runner = vi.fn(async (): Promise<WhisperRunResult> => ({
+      segments: [{ startMs: 0, endMs: 3000, text: 'Hello' }],
+      detectedLanguage: 'en',
+    }));
+    const svc = new WhisperService(
+      { modelSize: 'base', modelsDir: tmpDir, audioDir: tmpDir },
+      runner,
+    );
+    svc.on('language-detected', (e) => events.push(e as never));
+
+    await svc.startMeeting('m3');
+    await svc.pushChunk('m3', pcmOfDuration(5));
+
+    expect(events).toEqual([{ meetingId: 'm3', language: 'en' }]);
+
+    const result = await svc.stopMeeting('m3');
+    expect(result.detectedLanguage).toBe('en');
+  });
+
   it('wirft Fehler wenn pushChunk vor startMeeting', async () => {
     const svc = new WhisperService(
       { modelSize: 'base', modelsDir: tmpDir, audioDir: tmpDir },
-      async () => [],
+      async () => ({ segments: [], detectedLanguage: null }),
     );
     await expect(svc.pushChunk('unknown', pcmOfDuration(5))).rejects.toThrow();
   });

@@ -88,4 +88,15 @@ export class TranscriptRepository {
       .filter((t) => t.length > 0)
       .join(' ');
   }
+
+  updateSpeakerLabels(updates: { segmentId: string; speakerLabel: string | null }[]): void {
+    this.db.transaction(() => {
+      const stmt = this.db.prepare(
+        'UPDATE transcript_segments SET speaker_label = ? WHERE id = ?',
+      );
+      for (const { segmentId, speakerLabel } of updates) {
+        stmt.run(speakerLabel, segmentId);
+      }
+    });
+  }
 }

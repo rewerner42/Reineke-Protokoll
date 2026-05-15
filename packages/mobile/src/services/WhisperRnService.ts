@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system';
 import { initWhisper } from 'whisper.rn';
-import type { TranscriptSegment, WhisperModelSize } from '@reineke/shared';
+import type { AppLanguage, TranscriptSegment, WhisperModelSize } from '@reineke/shared';
 import { newId, nowIso } from '@reineke/shared';
 
 const MODEL_FILENAMES: Record<WhisperModelSize, string> = {
@@ -87,7 +87,7 @@ export class WhisperRnService {
     this.context = (await initWhisper({ filePath: modelPath })) as unknown as WhisperContext;
   }
 
-  async startRealtime(meetingId: string, language: 'de' | 'en' = 'de'): Promise<void> {
+  async startRealtime(meetingId: string, language: AppLanguage = 'auto'): Promise<void> {
     if (!this.context) throw new Error('Whisper-Context nicht initialisiert');
     this.currentMeetingId = meetingId;
     this.lastEmittedEndMs = 0;

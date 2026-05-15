@@ -5,6 +5,7 @@ import type {
   AppSettings,
   LLMProviderName,
   WhisperModelSize,
+  SpeakerMapping,
 } from '@reineke/shared';
 
 export interface WhisperModelInfo {
@@ -17,6 +18,12 @@ export interface WhisperModelInfo {
 export interface DownloadProgress {
   size: WhisperModelSize;
   percent: number;
+}
+
+export interface DiarizationStatus {
+  meetingId: string;
+  state: 'started' | 'completed' | 'failed' | 'skipped';
+  error?: string;
 }
 
 export interface IpcContract {
@@ -34,6 +41,11 @@ export interface IpcContract {
   transcription: {
     listForMeeting(meetingId: string): Promise<TranscriptSegment[]>;
     onSegment(cb: (segment: TranscriptSegment) => void): () => void;
+  };
+  speakers: {
+    listForMeeting(meetingId: string): Promise<SpeakerMapping[]>;
+    rename(meetingId: string, rawLabel: string, displayName: string): Promise<void>;
+    onDiarizationStatus(cb: (status: DiarizationStatus) => void): () => void;
   };
   protocol: {
     generate(meetingId: string): Promise<Protocol>;

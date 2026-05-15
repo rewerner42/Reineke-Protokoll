@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import type { LLMProvider } from './LLMProvider.js';
 import { LLMProviderError } from './LLMProvider.js';
-import { PROTOCOL_SYSTEM_PROMPT, buildProtocolUserPrompt } from './prompts.js';
+import { systemPromptFor, buildProtocolUserPrompt } from './prompts.js';
 import type { ProtocolInput, ProtocolOutput } from '../models/schemas.js';
 import { PROTOCOL_JSON_SCHEMA, ProtocolOutputSchema } from '../models/schemas.js';
 
@@ -27,7 +27,7 @@ export class OpenAIProvider implements LLMProvider {
       response = await this.client.chat.completions.create({
         model: this.model,
         messages: [
-          { role: 'system', content: PROTOCOL_SYSTEM_PROMPT },
+          { role: 'system', content: systemPromptFor(input.language) },
           { role: 'user', content: buildProtocolUserPrompt(input) },
         ],
         response_format: {

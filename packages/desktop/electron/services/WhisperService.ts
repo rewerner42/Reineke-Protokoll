@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import type { WhisperModelSize, TranscriptSegment } from '@reineke/shared';
+import type { WhisperModelSize, TranscriptSegment, AppLanguage, DetectedLanguage } from '@reineke/shared';
 import {
   classifySegments,
   computeFinalUntilMs,
@@ -37,7 +37,7 @@ export interface WhisperServiceOptions {
   modelSize: WhisperModelSize;
   modelsDir: string;
   audioDir: string;
-  language?: 'de' | 'en';
+  language?: AppLanguage;
 }
 
 const MODEL_NAME = {
@@ -53,22 +53,32 @@ interface MeetingState {
   lastFinalUntilMs: number;
   emittedSegmentIds: Map<string, string>;
   audioPath: string;
+  detectedLanguage: DetectedLanguage | null;
+}
+
+export interface StopMeetingResult {
+  audioPath: string | null;
+  detectedLanguage: DetectedLanguage | null;
+}
+
+export type WhisperRunner = (audioPath: string) => Promise<WhisperRunResult>;
+
+export interface WhisperRunResult {
+  segments: RawWhisperSegment[];
+  detectedLanguage: DetectedLanguage | null;
 }
 
 /**
  * Hält pro Meeting einen wachsenden PCM-Buffer (16 kHz Mono PCM16) und führt
  * nach jedem neuen Chunk Whisper auf den letzten 30 s aus. Emittiert sowohl
  * vorläufige als auch finale Segmente.
- *
- * Die tatsächliche Whisper-Inferenz ist durch `runWhisper()` gekapselt — in
- * Tests kann ein Test-Double injiziert werden.
  */
 export class WhisperService extends EventEmitter {
   private readonly meetings = new Map<string, MeetingState>();
 
   constructor(
     private readonly opts: WhisperServiceOptions,
-    private readonly whisperRunner?: (audioPath: string) => Promise<RawWhisperSegment[]>,
+    private readonly whisperRunner?: WhisperRunner,
   ) {
     super();
   }
@@ -81,6 +91,7 @@ export class WhisperService extends EventEmitter {
       lastFinalUntilMs: 0,
       emittedSegmentIds: new Map(),
       audioPath: path.join(this.opts.audioDir, `${meetingId}.wav`),
+      detectedLanguage: null,
     });
   }
 
@@ -96,8 +107,15 @@ export class WhisperService extends EventEmitter {
     const windowStartMs = currentMs - pcmDurationMs(windowPcm);
     const wavPath = await this.writeTempWav(state, windowPcm);
 
-    const rawSegments = await this.runInference(wavPath);
-    const offsetSegments = rawSegments.map((s) => ({
+    const inference = await this.runInference(wavPath);
+    if (inference.detectedLanguage && state.detectedLanguage === null) {
+      state.detectedLanguage = inference.detectedLanguage;
+      this.emit('language-detected', {
+        meetingId,
+        language: inference.detectedLanguage,
+      });
+    }
+    const offsetSegments = inference.segments.map((s) => ({
       startMs: s.startMs + windowStartMs,
       endMs: s.endMs + windowStartMs,
       text: s.text,
@@ -139,13 +157,14 @@ export class WhisperService extends EventEmitter {
     state.lastFinalUntilMs = finalUntilMs;
   }
 
-  async stopMeeting(meetingId: string): Promise<{ audioPath: string | null }> {
+  async stopMeeting(meetingId: string): Promise<StopMeetingResult> {
     const state = this.meetings.get(meetingId);
-    if (!state) return { audioPath: null };
+    if (!state) return { audioPath: null, detectedLanguage: null };
     const audioPath = state.audioPath;
+    const detectedLanguage = state.detectedLanguage;
     await this.writeFullWav(audioPath, state.pcm);
     this.meetings.delete(meetingId);
-    return { audioPath };
+    return { audioPath, detectedLanguage };
   }
 
   private async writeTempWav(state: MeetingState, pcm: Buffer): Promise<string> {
@@ -160,7 +179,7 @@ export class WhisperService extends EventEmitter {
     await fs.writeFile(filePath, wav);
   }
 
-  private async runInference(audioPath: string): Promise<RawWhisperSegment[]> {
+  private async runInference(audioPath: string): Promise<WhisperRunResult> {
     if (this.whisperRunner) return this.whisperRunner(audioPath);
     return runWithNodejsWhisper(audioPath, this.opts);
   }
@@ -205,8 +224,9 @@ function buildWavBuffer(pcm: Buffer): Buffer {
 async function runWithNodejsWhisper(
   audioPath: string,
   opts: WhisperServiceOptions,
-): Promise<RawWhisperSegment[]> {
+): Promise<WhisperRunResult> {
   const mod = (await import('nodejs-whisper')) as unknown as { nodewhisper: WhisperFn };
+  const requestedLanguage = opts.language ?? 'auto';
   const result = (await mod.nodewhisper(audioPath, {
     modelName: MODEL_NAME[opts.modelSize],
     autoDownloadModelName: MODEL_NAME[opts.modelSize],
@@ -215,13 +235,14 @@ async function runWithNodejsWhisper(
       outputInText: false,
       outputInSrt: false,
       outputInVtt: false,
-      language: opts.language ?? 'de',
+      language: requestedLanguage,
       wordTimestamps: false,
     },
   })) as unknown;
 
   const segments = extractSegments(result);
-  return segments;
+  const detected = extractDetectedLanguage(result, requestedLanguage);
+  return { segments, detectedLanguage: detected };
 }
 
 interface JsonSegment {
@@ -243,6 +264,27 @@ function extractSegments(result: unknown): RawWhisperSegment[] {
     endMs: parseTimestampMs(s.to ?? s.end ?? 0),
     text: (s.speech ?? s.text ?? '').toString(),
   }));
+}
+
+function extractDetectedLanguage(
+  result: unknown,
+  requested: string,
+): DetectedLanguage | null {
+  // Wenn der Nutzer explizit DE/EN gewählt hat, ist das die Sprache.
+  if (requested === 'de' || requested === 'en') return requested;
+  // Bei 'auto' sucht whisper.cpp die Sprache und legt sie unter `language` ab.
+  if (!result || typeof result !== 'object') return null;
+  const candidate = (result as { language?: unknown; result?: { language?: unknown } });
+  const lang =
+    typeof candidate.language === 'string'
+      ? candidate.language
+      : typeof candidate.result === 'object' &&
+          candidate.result !== null &&
+          typeof candidate.result.language === 'string'
+        ? candidate.result.language
+        : null;
+  if (lang === 'de' || lang === 'en') return lang;
+  return null;
 }
 
 function parseTimestampMs(value: string | number): number {

@@ -9,13 +9,18 @@ export function MeetingListPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.meetings
-      .list()
-      .then((m) => {
-        setMeetings(m);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    const refresh = (): void => {
+      api.meetings
+        .list()
+        .then((m) => {
+          setMeetings(m);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    };
+    refresh();
+    const unsubscribe = api.speakers.onDiarizationStatus(() => refresh());
+    return unsubscribe;
   }, []);
 
   const handleDelete = async (id: string): Promise<void> => {
@@ -76,12 +81,20 @@ export function MeetingListPage(): JSX.Element {
 
 function StatusBadge({ status }: { status: Meeting['status'] }): JSX.Element {
   const label =
-    status === 'recording' ? 'läuft' : status === 'completed' ? 'abgeschlossen' : 'archiviert';
+    status === 'recording'
+      ? 'läuft'
+      : status === 'diarizing'
+        ? 'Sprecher werden erkannt …'
+        : status === 'completed'
+          ? 'abgeschlossen'
+          : 'archiviert';
   const color =
     status === 'recording'
       ? 'text-red-600'
-      : status === 'completed'
-        ? 'text-green-700'
-        : 'text-slate-500';
+      : status === 'diarizing'
+        ? 'text-amber-600'
+        : status === 'completed'
+          ? 'text-green-700'
+          : 'text-slate-500';
   return <span className={color}>{label}</span>;
 }

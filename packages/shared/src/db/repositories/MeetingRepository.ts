@@ -1,5 +1,5 @@
 import type { DatabaseAdapter } from '../DatabaseAdapter.js';
-import type { Meeting, MeetingStatus } from '../../models/Meeting.js';
+import type { Meeting, MeetingStatus, DetectedLanguage } from '../../models/Meeting.js';
 import { newId } from '../../utils/id.js';
 import { nowIso } from '../../utils/date.js';
 
@@ -10,6 +10,7 @@ interface MeetingRow {
   ended_at: string | null;
   status: MeetingStatus;
   audio_path: string | null;
+  language: DetectedLanguage | null;
   created_at: string;
   updated_at: string;
 }
@@ -22,6 +23,7 @@ function rowToMeeting(row: MeetingRow): Meeting {
     endedAt: row.ended_at,
     status: row.status,
     audioPath: row.audio_path,
+    language: row.language,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -39,13 +41,14 @@ export class MeetingRepository {
       endedAt: null,
       status: 'recording',
       audioPath: null,
+      language: null,
       createdAt: now,
       updatedAt: now,
     };
     this.db
       .prepare(
-        `INSERT INTO meetings (id, title, started_at, ended_at, status, audio_path, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO meetings (id, title, started_at, ended_at, status, audio_path, language, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         meeting.id,
@@ -54,6 +57,7 @@ export class MeetingRepository {
         meeting.endedAt,
         meeting.status,
         meeting.audioPath,
+        meeting.language,
         meeting.createdAt,
         meeting.updatedAt,
       );
@@ -87,7 +91,7 @@ export class MeetingRepository {
     this.db
       .prepare(
         `UPDATE meetings
-         SET title = ?, started_at = ?, ended_at = ?, status = ?, audio_path = ?, updated_at = ?
+         SET title = ?, started_at = ?, ended_at = ?, status = ?, audio_path = ?, language = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -96,6 +100,7 @@ export class MeetingRepository {
         updated.endedAt,
         updated.status,
         updated.audioPath,
+        updated.language,
         updated.updatedAt,
         id,
       );

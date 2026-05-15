@@ -67,7 +67,7 @@ export default function RecordScreen(): JSX.Element {
       const whisper = getWhisperService();
       await whisper.init(DEFAULT_MODEL, (p) => setProgress(p));
       setProgress(null);
-      await whisper.startRealtime(meeting.id, 'de');
+      await whisper.startRealtime(meeting.id, 'auto');
       setPhase('recording');
     } catch (err) {
       setError((err as Error).message);
