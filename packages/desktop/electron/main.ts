@@ -12,7 +12,7 @@ import {
   renderProtocolMarkdown,
   listOllamaModels,
 } from '@reineke/shared';
-import type { LLMProviderName } from '@reineke/shared';
+import type { LLMProviderName, WhisperModelSize } from '@reineke/shared';
 import { BetterSqliteAdapter } from './services/BetterSqliteAdapter.js';
 import { SettingsService } from './services/SettingsService.js';
 import { WhisperService } from './services/WhisperService.js';
@@ -253,6 +253,9 @@ function registerIpc(context: AppContext): void {
   handle('settings:get', async () => context.settings.get());
   handle('settings:set', async (patch) => {
     const newSettings = await context.settings.set(patch as never);
+    if ((patch as Partial<{ whisperModelSize: WhisperModelSize }>).whisperModelSize) {
+      context.whisper.setModelSize(newSettings.whisperModelSize);
+    }
     return newSettings;
   });
   handle('settings:setApiKey', async (provider, key) => {
@@ -263,22 +266,31 @@ function registerIpc(context: AppContext): void {
   );
 
   // Whisper-Modelle
+  const APPROX_MB: Record<WhisperModelSize, number> = {
+    tiny: 75,
+    base: 142,
+    small: 466,
+    medium: 1462,
+    'large-v3-turbo': 1624,
+  };
   handle('whisperModel:list', async (): Promise<WhisperModelInfo[]> => {
-    const sizes: WhisperModelInfo[] = (['tiny', 'base', 'small', 'medium'] as const).map(
-      (size) => ({
-        size,
-        downloaded: false,
-        filePath: null,
-        approxMb:
-          size === 'tiny' ? 39 : size === 'base' ? 74 : size === 'small' ? 244 : 769,
-      }),
-    );
-    return sizes;
+    return (['tiny', 'base', 'small', 'medium', 'large-v3-turbo'] as const).map((size) => ({
+      size,
+      downloaded: context.whisper.isModelAvailable(size),
+      filePath: null,
+      approxMb: APPROX_MB[size],
+    }));
   });
-  handle('whisperModel:download', async () => {
-    // nodejs-whisper lädt Modelle automatisch beim ersten Aufruf; expliziter
-    // Download bleibt als Hook für künftige Erweiterungen.
+  handle('whisperModel:download', async (size) => {
+    await context.whisper.downloadModel(size as WhisperModelSize);
   });
+
+  context.whisper.on(
+    'modelDownloadProgress',
+    (info: { size: WhisperModelSize; percent: number }) => {
+      context.mainWindow?.webContents.send('whisperModel:downloadProgress', info);
+    },
+  );
 
   // Ollama
   handle('ollama:listModels', async (baseUrl) => {

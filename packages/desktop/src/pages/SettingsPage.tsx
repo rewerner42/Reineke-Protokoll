@@ -18,12 +18,59 @@ export function SettingsPage(): JSX.Element {
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [whisperModelInfo, setWhisperModelInfo] = useState<
+    Record<WhisperModelSize, { downloaded: boolean; approxMb: number }>
+  >({
+    tiny: { downloaded: false, approxMb: 75 },
+    base: { downloaded: false, approxMb: 142 },
+    small: { downloaded: false, approxMb: 466 },
+    medium: { downloaded: false, approxMb: 1462 },
+    'large-v3-turbo': { downloaded: false, approxMb: 1624 },
+  });
+  const [downloadingModel, setDownloadingModel] = useState<{
+    size: WhisperModelSize;
+    percent: number;
+  } | null>(null);
+  const [whisperError, setWhisperError] = useState<string | null>(null);
+
+  const refreshWhisperModels = async (): Promise<void> => {
+    const list = await api.whisperModel.list();
+    const next = { ...whisperModelInfo };
+    for (const info of list) {
+      next[info.size] = { downloaded: info.downloaded, approxMb: info.approxMb };
+    }
+    setWhisperModelInfo(next);
+  };
 
   useEffect(() => {
     void api.settings.get().then(setSettings);
     void api.settings.hasApiKey('claude').then(setHasClaudeKey);
     void api.settings.hasApiKey('openai').then(setHasOpenaiKey);
+    void refreshWhisperModels();
+    const unsubscribe = api.whisperModel.onDownloadProgress(({ size, percent }) => {
+      setDownloadingModel({ size, percent });
+      if (percent >= 100) {
+        setTimeout(() => {
+          setDownloadingModel(null);
+          void refreshWhisperModels();
+        }, 800);
+      }
+    });
+    return unsubscribe;
   }, []);
+
+  const triggerWhisperDownload = async (size: WhisperModelSize): Promise<void> => {
+    setWhisperError(null);
+    setDownloadingModel({ size, percent: 0 });
+    try {
+      await api.whisperModel.download(size);
+      await refreshWhisperModels();
+    } catch (err) {
+      setWhisperError((err as Error).message);
+    } finally {
+      setDownloadingModel(null);
+    }
+  };
 
   const refreshOllamaModels = async (baseUrl: string): Promise<void> => {
     setOllamaError(null);
@@ -380,21 +427,90 @@ export function SettingsPage(): JSX.Element {
       </Section>
 
       <Section title="Whisper-Modell">
-        <Field label="Modellgröße">
-          <select
-            value={settings.whisperModelSize}
-            onChange={(e) => update({ whisperModelSize: e.target.value as WhisperModelSize })}
-            className="w-full border border-slate-300 rounded-md px-3 py-2"
-          >
-            <option value="tiny">tiny (~39 MB, sehr schnell, geringere Qualität)</option>
-            <option value="base">base (~74 MB, empfohlen)</option>
-            <option value="small">small (~244 MB, höhere Qualität)</option>
-            <option value="medium">medium (~769 MB, beste Qualität)</option>
-          </select>
-        </Field>
-        <p className="text-xs text-slate-500 mt-1">
-          Modelle werden beim ersten Aufnahmestart automatisch heruntergeladen.
+        <p className="text-xs text-slate-500 mb-3">
+          Modelle laufen lokal — größere Modelle sind genauer, brauchen aber mehr
+          RAM und Rechenzeit. Wird ein noch nicht installiertes Modell aktiviert,
+          startet der Download automatisch.
         </p>
+        <div className="space-y-2">
+          {(
+            [
+              { size: 'tiny' as const, label: 'tiny', hint: 'sehr schnell, geringere Qualität' },
+              { size: 'base' as const, label: 'base', hint: 'guter Kompromiss' },
+              { size: 'small' as const, label: 'small', hint: 'empfohlen für Deutsch' },
+              { size: 'medium' as const, label: 'medium', hint: 'sehr gute Qualität, langsamer' },
+              {
+                size: 'large-v3-turbo' as const,
+                label: 'large-v3-turbo',
+                hint: 'beste Qualität, neueste Generation',
+              },
+            ] as const
+          ).map(({ size, label, hint }) => {
+            const info = whisperModelInfo[size];
+            const isActive = settings.whisperModelSize === size;
+            const isDownloading = downloadingModel?.size === size;
+            return (
+              <div
+                key={size}
+                className={`flex items-center gap-3 border rounded-md p-3 ${
+                  isActive ? 'border-slate-900 bg-slate-50' : 'border-slate-200 bg-white'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="whisper-model"
+                  checked={isActive}
+                  onChange={async () => {
+                    await update({ whisperModelSize: size });
+                    if (!whisperModelInfo[size].downloaded && !isDownloading) {
+                      void triggerWhisperDownload(size);
+                    }
+                  }}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-slate-900">
+                    {label}{' '}
+                    <span className="text-xs font-normal text-slate-500">
+                      (~{info.approxMb} MB · {hint})
+                    </span>
+                  </div>
+                  {info.downloaded ? (
+                    <div className="text-xs text-green-700">✓ heruntergeladen</div>
+                  ) : isDownloading ? (
+                    <div className="text-xs text-slate-600">
+                      Lädt {downloadingModel.percent}% …
+                      <div className="h-1 bg-slate-200 rounded mt-1 overflow-hidden">
+                        <div
+                          className="h-full bg-slate-900 transition-all"
+                          style={{ width: `${downloadingModel.percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 italic">
+                      noch nicht heruntergeladen
+                    </div>
+                  )}
+                </div>
+                {!info.downloaded && !isDownloading && (
+                  <button
+                    type="button"
+                    onClick={() => void triggerWhisperDownload(size)}
+                    className="px-3 py-1.5 bg-slate-900 text-white text-xs rounded-md hover:bg-slate-800"
+                  >
+                    Laden
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {whisperError && (
+          <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 mt-3 whitespace-pre-wrap">
+            {whisperError}
+          </p>
+        )}
       </Section>
     </div>
   );
