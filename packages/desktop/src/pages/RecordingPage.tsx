@@ -1,48 +1,39 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { TranscriptSegment } from '@reineke/shared';
 import { api } from '../lib/ipc.js';
-import { useRecorder } from '../hooks/useRecorder.js';
+import { useRecorderStore } from '../hooks/useRecorderStore.js';
 
 export function RecordingPage(): JSX.Element {
   const navigate = useNavigate();
-  const recorder = useRecorder();
+  const recorder = useRecorderStore();
   const [title, setTitle] = useState('');
-  const [meetingId, setMeetingId] = useState<string | null>(null);
-  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [elapsedSec, setElapsedSec] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!meetingId) return;
-    const unsubscribe = api.transcription.onSegment((segment) => {
-      if (segment.meetingId !== meetingId) return;
-      setSegments((prev) => mergeSegment(prev, segment));
-    });
-    return unsubscribe;
-  }, [meetingId]);
-
-  useEffect(() => {
-    if (!recorder.isRecording) return;
-    const interval = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    if (!recorder.isRecording || !recorder.startedAt) {
+      setElapsedSec(0);
+      return;
+    }
+    const tick = (): void =>
+      setElapsedSec(Math.floor((Date.now() - (recorder.startedAt ?? Date.now())) / 1000));
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [recorder.isRecording]);
+  }, [recorder.isRecording, recorder.startedAt]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [segments]);
+  }, [recorder.segments]);
 
   const handleStart = async (): Promise<void> => {
     const finalTitle = title.trim() || `Meeting ${new Date().toLocaleString('de-DE')}`;
     const meeting = await api.meetings.create({ title: finalTitle });
-    setMeetingId(meeting.id);
-    setSegments([]);
-    setElapsedSec(0);
-    await recorder.start(meeting.id);
+    await recorder.start(meeting.id, finalTitle);
   };
 
   const handleStop = async (): Promise<void> => {
-    await recorder.stop();
+    const meetingId = await recorder.stop();
     if (meetingId) navigate(`/meetings/${meetingId}`);
   };
 
@@ -50,7 +41,7 @@ export function RecordingPage(): JSX.Element {
     <div className="p-6 max-w-4xl">
       <h2 className="text-2xl font-semibold text-slate-900 mb-4">Aufnahme</h2>
 
-      {!recorder.isRecording && !meetingId && (
+      {!recorder.isRecording && (
         <div className="bg-white border border-slate-200 rounded-lg p-6">
           <label className="block text-sm font-medium text-slate-700 mb-2" htmlFor="title">
             Titel des Meetings
@@ -74,6 +65,10 @@ export function RecordingPage(): JSX.Element {
           {recorder.error && (
             <p className="text-red-600 text-sm mt-3">Fehler: {recorder.error}</p>
           )}
+          <p className="text-xs text-slate-500 mt-4">
+            Tipp: Die Aufnahme läuft auch dann weiter, wenn du auf eine andere Seite wechselst.
+            In der Sidebar siehst du den laufenden Status und kannst von dort jederzeit stoppen.
+          </p>
         </div>
       )}
 
@@ -85,6 +80,9 @@ export function RecordingPage(): JSX.Element {
                 <span className="w-3 h-3 bg-red-600 rounded-full animate-pulse" /> Aufnahme läuft
               </div>
               <div className="text-sm text-slate-500 mt-1">
+                {recorder.meetingTitle && (
+                  <span className="font-medium text-slate-700 mr-2">{recorder.meetingTitle}</span>
+                )}
                 {formatTimer(elapsedSec)} · Pegel: {Math.round(recorder.level * 100)}%
               </div>
             </div>
@@ -108,10 +106,10 @@ export function RecordingPage(): JSX.Element {
             ref={scrollRef}
             className="h-96 overflow-auto bg-slate-50 border border-slate-200 rounded p-4 text-sm leading-relaxed"
           >
-            {segments.length === 0 ? (
+            {recorder.segments.length === 0 ? (
               <p className="text-slate-400 italic">Live-Transkript erscheint hier …</p>
             ) : (
-              segments.map((s) => (
+              recorder.segments.map((s) => (
                 <span
                   key={s.id}
                   className={s.isFinal ? 'text-slate-900' : 'text-slate-400 italic'}
@@ -125,15 +123,6 @@ export function RecordingPage(): JSX.Element {
       )}
     </div>
   );
-}
-
-function mergeSegment(prev: TranscriptSegment[], next: TranscriptSegment): TranscriptSegment[] {
-  if (next.isFinal) {
-    const filtered = prev.filter((s) => s.isFinal || s.endMs <= next.startMs);
-    return [...filtered, next];
-  }
-  const finals = prev.filter((s) => s.isFinal);
-  return [...finals, next];
 }
 
 function formatTimer(sec: number): string {

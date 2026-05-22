@@ -24,6 +24,7 @@ export type { DiarizationSpan, TimedSegment } from './diarization/mergeSegments.
 export * from './llm/LLMProvider.js';
 export { ClaudeProvider } from './llm/ClaudeProvider.js';
 export { OpenAIProvider } from './llm/OpenAIProvider.js';
+export { OllamaProvider, listOllamaModels } from './llm/OllamaProvider.js';
 export { createLLMProvider } from './llm/ProviderFactory.js';
 export { LLM_MODELS } from './llm/models.js';
 export * from './llm/prompts.js';

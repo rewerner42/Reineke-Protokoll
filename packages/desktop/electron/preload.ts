@@ -37,7 +37,7 @@ const api: IpcContract = {
     },
   },
   protocol: {
-    generate: (id) => invoke('protocol:generate', id),
+    generate: (id, override) => invoke('protocol:generate', id, override),
     get: (id) => invoke('protocol:get', id),
     updateMarkdown: (pid, md) => invoke('protocol:updateMarkdown', pid, md),
     setTodoDone: (tid, done) => invoke('protocol:setTodoDone', tid, done),
@@ -48,6 +48,10 @@ const api: IpcContract = {
     set: (patch) => invoke('settings:set', patch),
     setApiKey: (provider, key) => invoke('settings:setApiKey', provider, key),
     hasApiKey: (provider) => invoke('settings:hasApiKey', provider),
+    uploadLogo: () => invoke('settings:uploadLogo'),
+    removeLogo: () => invoke('settings:removeLogo'),
+    getLogoDataUrl: () => invoke('settings:getLogoDataUrl'),
+    pickExportDir: () => invoke('settings:pickExportDir'),
   },
   whisperModel: {
     list: () => invoke('whisperModel:list'),
@@ -57,6 +61,16 @@ const api: IpcContract = {
       ipcRenderer.on('whisperModel:downloadProgress', listener);
       return () => ipcRenderer.removeListener('whisperModel:downloadProgress', listener);
     },
+  },
+  ollama: {
+    listModels: (baseUrl) => invoke('ollama:listModels', baseUrl),
+  },
+  pdf: {
+    exportProtocol: (meetingId) => invoke('pdf:exportProtocol', meetingId),
+    exportTranscript: (meetingId) => invoke('pdf:exportTranscript', meetingId),
+  },
+  transcript: {
+    exportMarkdown: (meetingId) => invoke('transcript:exportMarkdown', meetingId),
   },
 };
 

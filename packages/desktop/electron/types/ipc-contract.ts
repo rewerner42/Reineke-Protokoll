@@ -48,7 +48,10 @@ export interface IpcContract {
     onDiarizationStatus(cb: (status: DiarizationStatus) => void): () => void;
   };
   protocol: {
-    generate(meetingId: string): Promise<Protocol>;
+    generate(
+      meetingId: string,
+      override?: { provider?: LLMProviderName; model?: string; ollamaBaseUrl?: string },
+    ): Promise<Protocol>;
     get(meetingId: string): Promise<Protocol | null>;
     updateMarkdown(protocolId: string, markdown: string): Promise<void>;
     setTodoDone(todoId: string, done: boolean): Promise<void>;
@@ -59,10 +62,24 @@ export interface IpcContract {
     set(patch: Partial<AppSettings>): Promise<AppSettings>;
     setApiKey(provider: LLMProviderName, key: string): Promise<void>;
     hasApiKey(provider: LLMProviderName): Promise<boolean>;
+    uploadLogo(): Promise<{ path: string } | null>;
+    removeLogo(): Promise<void>;
+    getLogoDataUrl(): Promise<string | null>;
+    pickExportDir(): Promise<{ path: string } | null>;
   };
   whisperModel: {
     list(): Promise<WhisperModelInfo[]>;
     download(size: WhisperModelSize): Promise<void>;
     onDownloadProgress(cb: (progress: DownloadProgress) => void): () => void;
+  };
+  ollama: {
+    listModels(baseUrl: string): Promise<string[]>;
+  };
+  pdf: {
+    exportProtocol(meetingId: string): Promise<{ path: string } | null>;
+    exportTranscript(meetingId: string): Promise<{ path: string } | null>;
+  };
+  transcript: {
+    exportMarkdown(meetingId: string): Promise<{ path: string } | null>;
   };
 }

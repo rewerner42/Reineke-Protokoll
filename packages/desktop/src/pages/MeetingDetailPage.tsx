@@ -116,6 +116,18 @@ export function MeetingDetailPage(): JSX.Element {
 
       {error && <p className="text-red-600 text-sm mt-3">Fehler: {error}</p>}
 
+      {meeting.audioPath && (
+        <div className="mt-6 bg-white border border-slate-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-2">Aufnahme</h3>
+          <audio
+            controls
+            preload="metadata"
+            src={`reineke-audio://meeting/${meeting.id}.wav`}
+            className="w-full"
+          />
+        </div>
+      )}
+
       {rawSpeakerLabels.length > 0 && (
         <>
           <h3 className="text-lg font-semibold text-slate-900 mt-8 mb-3">Sprecher</h3>
@@ -134,7 +146,41 @@ export function MeetingDetailPage(): JSX.Element {
         </>
       )}
 
-      <h3 className="text-lg font-semibold text-slate-900 mt-8 mb-3">Transkript</h3>
+      <div className="flex items-center justify-between mt-8 mb-3">
+        <h3 className="text-lg font-semibold text-slate-900">
+          Transkript – <span className="text-slate-700 font-normal">{meeting.title}</span>
+        </h3>
+        {finalSegments.length > 0 && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!id) return;
+                const r = await api.transcript.exportMarkdown(id);
+                if (r) alert(`Transkript exportiert: ${r.path}`);
+              }}
+              className="px-3 py-1.5 bg-white border border-slate-300 text-slate-900 text-sm rounded-md hover:bg-slate-50"
+            >
+              Markdown
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!id) return;
+                try {
+                  const r = await api.pdf.exportTranscript(id);
+                  if (r) alert(`Transkript als PDF exportiert: ${r.path}`);
+                } catch (err) {
+                  alert(`PDF-Export fehlgeschlagen: ${(err as Error).message}`);
+                }
+              }}
+              className="px-3 py-1.5 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800"
+            >
+              PDF
+            </button>
+          </div>
+        )}
+      </div>
       {finalSegments.length === 0 ? (
         <p className="text-slate-500 italic">Kein Transkript vorhanden.</p>
       ) : (
