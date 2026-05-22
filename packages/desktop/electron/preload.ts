@@ -27,7 +27,7 @@ const api: IpcContract = {
     },
   },
   protocol: {
-    generate: (id) => invoke('protocol:generate', id),
+    generate: (id, override) => invoke('protocol:generate', id, override),
     get: (id) => invoke('protocol:get', id),
     updateMarkdown: (pid, md) => invoke('protocol:updateMarkdown', pid, md),
     setTodoDone: (tid, done) => invoke('protocol:setTodoDone', tid, done),

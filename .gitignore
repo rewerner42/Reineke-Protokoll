@@ -8,6 +8,10 @@ build/
 out/
 *.tsbuildinfo
 
+# Whitelist electron-builder resources (overrides build/ above)
+!packages/desktop/build/
+!packages/desktop/build/**
+
 # Test / coverage
 coverage/
 .vitest/

@@ -1,6 +1,6 @@
 import type { LLMProviderName } from './Protocol.js';
 
-export type WhisperModelSize = 'tiny' | 'base' | 'small' | 'medium';
+export type WhisperModelSize = 'tiny' | 'base' | 'small' | 'medium' | 'large-v3-turbo';
 
 export type PdfClassification =
   | 'none'

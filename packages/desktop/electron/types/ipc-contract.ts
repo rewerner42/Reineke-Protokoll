@@ -36,7 +36,10 @@ export interface IpcContract {
     onSegment(cb: (segment: TranscriptSegment) => void): () => void;
   };
   protocol: {
-    generate(meetingId: string): Promise<Protocol>;
+    generate(
+      meetingId: string,
+      override?: { provider?: LLMProviderName; model?: string; ollamaBaseUrl?: string },
+    ): Promise<Protocol>;
     get(meetingId: string): Promise<Protocol | null>;
     updateMarkdown(protocolId: string, markdown: string): Promise<void>;
     setTodoDone(todoId: string, done: boolean): Promise<void>;

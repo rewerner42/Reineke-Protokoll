@@ -17,7 +17,9 @@ export class PdfExportService {
     filePath: string,
   ): Promise<{ path: string }> {
     const html = await renderProtocolHtml(meeting, protocol, settings);
-    await writePdf(html, filePath);
+    await writePdf(html, filePath, {
+      headerText: `Protokoll – ${meeting.title}${settings.pdfCompanyName ? ` · ${settings.pdfCompanyName}` : ''}`,
+    });
     return { path: filePath };
   }
 
@@ -28,12 +30,18 @@ export class PdfExportService {
     filePath: string,
   ): Promise<{ path: string }> {
     const html = await renderTranscriptHtml(meeting, segments, settings);
-    await writePdf(html, filePath);
+    await writePdf(html, filePath, {
+      headerText: `Transkript – ${meeting.title}${settings.pdfCompanyName ? ` · ${settings.pdfCompanyName}` : ''}`,
+    });
     return { path: filePath };
   }
 }
 
-async function writePdf(html: string, filePath: string): Promise<void> {
+async function writePdf(
+  html: string,
+  filePath: string,
+  options: { headerText: string } = { headerText: '' },
+): Promise<void> {
   const pdfWindow = new BrowserWindow({
     show: false,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
@@ -45,13 +53,34 @@ async function writePdf(html: string, filePath: string): Promise<void> {
     const pdfBuffer = await pdfWindow.webContents.printToPDF({
       printBackground: true,
       pageSize: 'A4',
-      margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 },
+      displayHeaderFooter: true,
+      headerTemplate: headerTemplate(options.headerText),
+      footerTemplate: footerTemplate(),
+      margins: { top: 0.6, bottom: 0.5, left: 0.4, right: 0.4 },
     });
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, pdfBuffer);
   } finally {
     pdfWindow.close();
   }
+}
+
+function headerTemplate(text: string): string {
+  const safe = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:8pt;color:#94a3b8;width:100%;padding:0 14mm;display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #e2e8f0;margin-bottom:4mm;">
+    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:75%;">${safe}</span>
+    <span class="date"></span>
+  </div>`;
+}
+
+function footerTemplate(): string {
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:8pt;color:#94a3b8;width:100%;padding:0 14mm;display:flex;justify-content:space-between;align-items:center;">
+    <span>Reineke-Protokoll</span>
+    <span>Seite <span class="pageNumber"></span> / <span class="totalPages"></span></span>
+  </div>`;
 }
 
 function escapeHtml(s: string): string {
@@ -95,8 +124,8 @@ function baseStyles(primaryColor: string): string {
       margin-bottom: 22px;
     }
     header .brand { display: flex; align-items: center; gap: 14px; }
-    header img.logo { max-height: 56px; max-width: 200px; object-fit: contain; }
-    header .company { font-weight: 600; color: ${primaryColor}; font-size: 13pt; }
+    header img.logo { max-height: 112px; max-width: 400px; object-fit: contain; }
+    header .company { font-weight: 600; color: ${primaryColor}; font-size: 14pt; }
     header .classification {
       font-size: 9pt;
       font-weight: 700;
@@ -126,15 +155,12 @@ function baseStyles(primaryColor: string): string {
     .todo .box.done { background: ${primaryColor}; border-color: ${primaryColor}; }
     .todo .meta-line { font-size: 9pt; color: #64748b; margin-top: 2px; }
     .empty { color: #94a3b8; font-style: italic; font-size: 10pt; }
-    footer {
-      margin-top: 30px;
-      padding-top: 10px;
-      border-top: 1px solid #e2e8f0;
-      font-size: 8pt;
-      color: #94a3b8;
-      display: flex;
-      justify-content: space-between;
+    .participants-compact {
+      font-size: 10.5pt;
+      line-height: 1.4;
+      color: #1e293b;
     }
+    .participants-compact .role { color: #64748b; font-size: 9.5pt; }
     .transcript {
       white-space: pre-wrap;
       font-size: 10.5pt;
@@ -163,16 +189,8 @@ function renderHeader(settings: AppSettings, logoData: string | null): string {
   return `<header><div class="brand">${logoHtml}${companyText}</div>${classificationHtml}</header>`;
 }
 
-function renderFooter(settings: AppSettings, modelInfo: string): string {
-  const date = new Date().toLocaleDateString('de-DE', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const company = settings.pdfCompanyName
-    ? `${escapeHtml(settings.pdfCompanyName)} · `
-    : '';
-  return `<footer><div>${company}Erstellt mit Reineke-Protokoll · ${modelInfo}</div><div>${escapeHtml(date)}</div></footer>`;
+function renderModelInfo(modelInfo: string): string {
+  return `<p style="font-size:8.5pt;color:#94a3b8;margin-top:24px;text-align:right;">${modelInfo}</p>`;
 }
 
 async function renderProtocolHtml(
@@ -188,12 +206,12 @@ async function renderProtocolHtml(
   const participantsHtml =
     protocol.participants.length === 0
       ? `<p class="empty">Keine Teilnehmer dokumentiert.</p>`
-      : `<ul>${protocol.participants
+      : `<p class="participants-compact">${protocol.participants
           .map(
             (p) =>
-              `<li><strong>${escapeHtml(p.name)}</strong>${p.role ? ` <span style="color:#64748b">— ${escapeHtml(p.role)}</span>` : ''}</li>`,
+              `<strong>${escapeHtml(p.name)}</strong>${p.role ? ` <span class="role">(${escapeHtml(p.role)})</span>` : ''}`,
           )
-          .join('')}</ul>`;
+          .join(' · ')}</p>`;
 
   const todosHtml =
     protocol.todos.length === 0
@@ -230,13 +248,13 @@ ${headerHtml}
 <h1>${escapeHtml(meeting.title)}</h1>
 <div class="meta">${escapeHtml(formatGermanDate(meeting.startedAt))} · Dauer ${escapeHtml(formatDuration(meeting.startedAt, meeting.endedAt))}</div>
 
-<h2>Zusammenfassung</h2><p>${summary}</p>
 <h2>Teilnehmer</h2>${participantsHtml}
+<h2>Zusammenfassung</h2><p>${summary}</p>
 <h2>To-Dos</h2>${todosHtml}
 <h2>Entscheidungen</h2>${decisionsHtml}
 <h2>Diskussionspunkte</h2>${discussionHtml}
 
-${renderFooter(settings, `${escapeHtml(protocol.llmProvider)} · ${escapeHtml(protocol.llmModel)}`)}
+${renderModelInfo(`${escapeHtml(protocol.llmProvider)} · ${escapeHtml(protocol.llmModel)}`)}
 </body></html>`;
 }
 
@@ -267,7 +285,7 @@ ${headerHtml}
 <h1>Transkript – ${escapeHtml(meeting.title)}</h1>
 <div class="meta">${escapeHtml(formatGermanDate(meeting.startedAt))} · Dauer ${escapeHtml(formatDuration(meeting.startedAt, meeting.endedAt))}</div>
 ${body}
-${renderFooter(settings, 'Live-Transkription via Whisper')}
+${renderModelInfo('Live-Transkription via Whisper')}
 </body></html>`;
 }
 
