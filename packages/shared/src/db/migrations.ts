@@ -1,6 +1,11 @@
 import type { DatabaseAdapter } from './DatabaseAdapter.js';
 import { nowIso } from '../utils/date.js';
-import { migration001 } from './migrations/embedded.js';
+import {
+  migration001,
+  migration002,
+  migration003,
+  migration004,
+} from './migrations/embedded.js';
 
 export interface Migration {
   version: number;
@@ -10,6 +15,9 @@ export interface Migration {
 
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: '001_initial', sql: migration001 },
+  { version: 2, name: '002_meeting_language', sql: migration002 },
+  { version: 3, name: '003_speakers_table', sql: migration003 },
+  { version: 4, name: '004_meeting_diarizing_status', sql: migration004 },
 ];
 
 export function runMigrations(db: DatabaseAdapter): void {

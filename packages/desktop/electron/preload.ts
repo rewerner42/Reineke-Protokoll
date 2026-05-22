@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { IpcContract } from './types/ipc-contract.js';
+import type { DiarizationStatus, IpcContract } from './types/ipc-contract.js';
 import type { TranscriptSegment } from '@reineke/shared';
 
 function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
@@ -24,6 +24,16 @@ const api: IpcContract = {
       const listener = (_event: unknown, segment: TranscriptSegment): void => cb(segment);
       ipcRenderer.on('transcription:segment', listener);
       return () => ipcRenderer.removeListener('transcription:segment', listener);
+    },
+  },
+  speakers: {
+    listForMeeting: (id) => invoke('speakers:listForMeeting', id),
+    rename: (id, rawLabel, displayName) =>
+      invoke('speakers:rename', id, rawLabel, displayName),
+    onDiarizationStatus: (cb) => {
+      const listener = (_event: unknown, status: DiarizationStatus): void => cb(status);
+      ipcRenderer.on('diarization:status', listener);
+      return () => ipcRenderer.removeListener('diarization:status', listener);
     },
   },
   protocol: {

@@ -17,6 +17,8 @@ export const CLASSIFICATION_LABELS: Record<PdfClassification, string> = {
   'streng-vertraulich': 'Streng vertraulich',
 };
 
+export type AppLanguage = 'auto' | 'de' | 'en';
+
 export interface AppSettings {
   llmProvider: LLMProviderName;
   claudeModel: string;
@@ -24,9 +26,10 @@ export interface AppSettings {
   ollamaBaseUrl: string;
   ollamaModel: string;
   whisperModelSize: WhisperModelSize;
-  language: 'de' | 'en';
+  language: AppLanguage;
   autoTranscribe: boolean;
   audioOutputDir: string | null;
+  diarizationEnabled: boolean;
   pdfPrimaryColor: string;
   pdfLogoPath: string | null;
   pdfCompanyName: string;
@@ -42,9 +45,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ollamaBaseUrl: 'http://localhost:11434',
   ollamaModel: 'llama3.1',
   whisperModelSize: 'tiny',
-  language: 'de',
+  language: 'auto',
   autoTranscribe: true,
   audioOutputDir: null,
+  diarizationEnabled: true,
   pdfPrimaryColor: '#0f172a',
   pdfLogoPath: null,
   pdfCompanyName: '',

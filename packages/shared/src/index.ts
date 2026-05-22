@@ -11,6 +11,15 @@ export * from './db/migrations.js';
 export { MeetingRepository } from './db/repositories/MeetingRepository.js';
 export { TranscriptRepository } from './db/repositories/TranscriptRepository.js';
 export { ProtocolRepository } from './db/repositories/ProtocolRepository.js';
+export { SpeakerRepository } from './db/repositories/SpeakerRepository.js';
+export type { SpeakerMapping } from './db/repositories/SpeakerRepository.js';
+
+export {
+  assignSpeakerToSegment,
+  assignSpeakerLabels,
+  labelForSpeakerIndex,
+} from './diarization/mergeSegments.js';
+export type { DiarizationSpan, TimedSegment } from './diarization/mergeSegments.js';
 
 export * from './llm/LLMProvider.js';
 export { ClaudeProvider } from './llm/ClaudeProvider.js';
