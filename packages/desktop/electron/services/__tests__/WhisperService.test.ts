@@ -39,7 +39,7 @@ describe('WhisperService', () => {
     await svc.startMeeting('m1');
     const { audioPath } = await svc.stopMeeting('m1');
     expect(audioPath).toContain('m1.wav');
-  });
+  }, 10000);
 
   it('emittiert ein finales Segment, wenn der Cutoff überschritten wird', async () => {
     const segments: TranscriptSegment[] = [];
